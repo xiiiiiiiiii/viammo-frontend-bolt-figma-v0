@@ -30,7 +30,7 @@ The MongoDB API server provides a secure way to access MongoDB data without expo
 ### Starting the API Server
 
 ```bash
-python scripts/mongo_api_server.py --port 5001
+python backend/mongo_api_server.py --port 5001
 ```
 
 Optional parameters:

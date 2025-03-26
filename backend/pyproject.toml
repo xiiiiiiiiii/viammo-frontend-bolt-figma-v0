@@ -1,0 +1,13 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Backend for viammo frontend made with figma + bolt + windsurf"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "flask",
+    "flask_cors",
+    "pymongo",
+    "python-dotenv",
+    "bson",
+]
