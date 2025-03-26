@@ -1,10 +1,9 @@
 import axios from 'axios';
 import { Trip, TripCalendarItem } from './types';
-import { env } from '../env';
 
-// API base URL - built from environment configuration
-// Will default to 'http://localhost:5001/api' but can be overridden with environment variables
-const API_BASE_URL = env.apiUrl;
+// API base URL - when using the Vite proxy, we can simply use '/api'
+// This will be proxied to http://localhost:5001/api through the Vite dev server
+const API_BASE_URL = '/api';
 
 // API functions for MongoDB operations
 export const api = {

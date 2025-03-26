@@ -7,6 +7,17 @@ export default defineConfig({
   plugins: [react()],
   publicDir: "./static",
   base: "./",
+  server: {
+    proxy: {
+      // Proxy all /api requests to the MongoDB API server
+      '/api': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path
+      }
+    }
+  },
   css: {
     postcss: {
       plugins: [tailwind()],
