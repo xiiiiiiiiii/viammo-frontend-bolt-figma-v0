@@ -1,0 +1,135 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 47.4% 11.2%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 47.4% 11.2%;
+
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 210 40% 98%;
+
+    --ring: 215 20.2% 65.1%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+
+    --muted: 223 47% 11%;
+    --muted-foreground: 215.4 16.3% 56.9%;
+
+    --accent: 216 34% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    --popover: 224 71% 4%;
+    --popover-foreground: 215 20.2% 65.1%;
+
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
+
+    --card: 224 71% 4%;
+    --card-foreground: 213 31% 91%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 1.2%;
+
+    --secondary: 222.2 47.4% 11.2%;
+    --secondary-foreground: 210 40% 98%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+
+    --ring: 216 34% 17%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+:root {
+  --body-large-bold-font-family: "Urbanist", Helvetica;
+  --body-large-bold-font-size: 16px;
+  --body-large-bold-font-style: normal;
+  --body-large-bold-font-weight: 700;
+  --body-large-bold-letter-spacing: 0.20000000298023224px;
+  --body-large-bold-line-height: 160%;
+  --body-large-semibold-font-family: "Urbanist", Helvetica;
+  --body-large-semibold-font-size: 16px;
+  --body-large-semibold-font-style: normal;
+  --body-large-semibold-font-weight: 600;
+  --body-large-semibold-letter-spacing: 0.20000000298023224px;
+  --body-large-semibold-line-height: 160%;
+  --body-small-regular-font-family: "Urbanist", Helvetica;
+  --body-small-regular-font-size: 12px;
+  --body-small-regular-font-style: normal;
+  --body-small-regular-font-weight: 400;
+  --body-small-regular-letter-spacing: 0.20000000298023224px;
+  --body-small-regular-line-height: 160%;
+  --body-xlarge-bold-font-family: "Urbanist", Helvetica;
+  --body-xlarge-bold-font-size: 18px;
+  --body-xlarge-bold-font-style: normal;
+  --body-xlarge-bold-font-weight: 700;
+  --body-xlarge-bold-letter-spacing: 0.20000000298023224px;
+  --body-xlarge-bold-line-height: 160%;
+  --button-shadow-1: 4px 8px 24px 0px rgba(23, 206, 146, 0.25);
+  --dark-opacitiesdark-50: rgba(54, 52, 52, 0.5);
+  --dark-opacitiesdark-70: rgba(54, 52, 52, 0.7);
+  --greyscale-100: rgba(245, 245, 245, 1);
+  --greyscale-200: rgba(238, 238, 238, 1);
+  --greyscale-50: rgba(250, 250, 250, 1);
+  --greyscale-700: rgba(97, 97, 97, 1);
+  --greyscale-900: rgba(33, 33, 33, 1);
+  --h4-bold-font-family: "Urbanist", Helvetica;
+  --h4-bold-font-size: 24px;
+  --h4-bold-font-style: normal;
+  --h4-bold-font-weight: 700;
+  --h4-bold-letter-spacing: 0px;
+  --h4-bold-line-height: 160%;
+  --h6-bold-font-family: "Urbanist", Helvetica;
+  --h6-bold-font-size: 18px;
+  --h6-bold-font-style: normal;
+  --h6-bold-font-weight: 700;
+  --h6-bold-letter-spacing: 0px;
+  --h6-bold-line-height: 160%;
+  --others-black: rgba(0, 0, 0, 1);
+  --others-white: rgba(255, 255, 255, 1);
+  --primary-50: rgba(232, 250, 244, 1);
+  --primary-900: rgba(23, 206, 146, 1);
+  --primarydark: rgba(54, 52, 52, 1);
+  --primarylight: rgba(242, 238, 233, 1);
+  --transparentgreen: rgba(23, 206, 146, 0.08);
+}
