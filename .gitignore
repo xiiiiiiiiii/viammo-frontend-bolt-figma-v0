@@ -12,6 +12,13 @@
 /dist
 
 # Environment variables
+./backend/.env
+./backend/.env.local
+./backend/.env.development.local
+./backend/.env.test.local
+./backend/.env.production.local
+./backend/.env.development
+./backend/.env.production
 .env
 .env.local
 .env.development.local
