@@ -31,6 +31,7 @@ export const api = {
   
   // Check API server health
   checkApiHealth: async (): Promise<{ status: string; message: string }> => {
+    console.log('API server: ', API_BASE_URL);
     try {
       // Try the API health endpoint to see if server is running
       const response = await axios.get(`${API_BASE_URL}/health`);

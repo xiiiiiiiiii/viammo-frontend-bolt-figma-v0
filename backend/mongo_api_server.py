@@ -449,7 +449,6 @@ if __name__ == '__main__':
     port = args.port
     
     print(f"\n====== Starting MongoDB API Server on port {port} ======")
-    print(f"MongoDB URI: {uri[:uri.index('@') + 1]}****{uri[uri.index('@'):]}")
     print(f"Database: {database_name}")
     
     try:
