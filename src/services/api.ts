@@ -1,9 +1,10 @@
 import axios from 'axios';
 import { Trip, TripCalendarItem } from './types';
+import { env } from '../env';
 
-// API base URL - points to our Python Flask server
-// Change this URL if your API server runs on a different port
-const API_BASE_URL = 'http://localhost:5001/api';
+// API base URL - built from environment configuration
+// Will default to 'http://localhost:5001/api' but can be overridden with environment variables
+const API_BASE_URL = env.apiUrl;
 
 // API functions for MongoDB operations
 export const api = {
