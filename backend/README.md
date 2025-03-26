@@ -11,20 +11,7 @@ This directory contains scripts for securely managing MongoDB credentials using 
 
 ## Setup Instructions
 
-### 1. Create Environment Variables
-
-Run the environment loader script to create a template and empty `.env` file:
-
-```bash
-python scripts/env_loader.py
-```
-
-This will:
-- Create a `.env.template` file showing what environment variables are needed
-- Create an empty `.env` file if it doesn't exist (git-ignored)
-- Check if all required environment variables are set
-
-### 2. Add Your MongoDB Credentials
+### 1. Add Environment Variables
 
 Edit the `.env` file and add your MongoDB credentials:
 
@@ -35,16 +22,6 @@ MONGODB_CLUSTER=your_cluster.mongodb.net
 MONGODB_DATABASE=your_database
 MONGODB_DATASOURCE=your_datasource
 ```
-
-### 3. Generate Credentials Configuration
-
-Run the environment loader script again to generate the `credentials.json` file:
-
-```bash
-python scripts/env_loader.py
-```
-
-This will generate a git-ignored `credentials.json` file that the application can use.
 
 ## API Server
 
