@@ -11,7 +11,7 @@ export default defineConfig({
     proxy: {
       // Proxy all /api requests to the MongoDB API server
       '/api': {
-        target: 'http://localhost:5001',
+        target: 'http://viammo-frontend-bolt-figma-v0-ba:5001',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path
