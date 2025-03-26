@@ -9,5 +9,4 @@ dependencies = [
     "flask_cors",
     "pymongo",
     "python-dotenv",
-    "bson",
 ]

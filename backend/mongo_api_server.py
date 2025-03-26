@@ -26,9 +26,6 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 from bson.json_util import dumps, loads
 
-# Determine base directory (project root)
-BASE_DIR = Path(__file__).resolve().parent.parent
-
 # Load environment variables from .env file
 load_dotenv()
 
