@@ -3,7 +3,7 @@ import { Trip, TripCalendarItem } from './types';
 
 // API base URL - points to our Python Flask server
 // Change this URL if your API server runs on a different port
-const API_BASE_URL = 'http://localhost:5004/api';
+const API_BASE_URL = 'http://localhost:5001/api';
 
 // API functions for MongoDB operations
 export const api = {

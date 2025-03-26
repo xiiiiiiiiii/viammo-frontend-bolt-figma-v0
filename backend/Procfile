@@ -1,1 +1,1 @@
-web: python mongo_api_server.py --port 5001
+web: python mongo_api_server.py

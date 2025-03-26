@@ -422,10 +422,11 @@ export const BuildANewTrip = (): JSX.Element => {
       };
 
       console.log("Sending trip data:", tripData);
-      console.log("API endpoint:", 'http://localhost:5004/api/create_trip');
+      const api_endpoint = 'http://localhost:5001/api/create_trip';
+      console.log("API endpoint:", api_endpoint);
       
       // Send request to create a new trip
-      const response = await axios.post('http://localhost:5004/api/create_trip', tripData);
+      const response = await axios.post(api_endpoint, tripData);
       
       console.log("API response:", response);
       

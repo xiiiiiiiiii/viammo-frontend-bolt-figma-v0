@@ -18,6 +18,7 @@ Endpoints:
 import os
 import json
 import sys
+import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, Response
@@ -439,7 +440,15 @@ def health_check():
     return jsonify({"status": "ok", "message": "MongoDB API Server is running"})
 
 if __name__ == '__main__':
-    print("\n====== Starting MongoDB API Server on port 5004 ======")
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='MongoDB API Server')
+    parser.add_argument('--port', type=int, default=5001, help='Port to run the server on (default: 5001)')
+    args = parser.parse_args()
+    
+    # Get port from command-line argument
+    port = args.port
+    
+    print(f"\n====== Starting MongoDB API Server on port {port} ======")
     print(f"MongoDB URI: {uri[:uri.index('@') + 1]}****{uri[uri.index('@'):]}")
     print(f"Database: {database_name}")
     
@@ -469,8 +478,8 @@ if __name__ == '__main__':
                     trip_id_type = type(trip_id_val).__name__
                     print(f"  - {item.get('type')}: {item.get('name')}, trip_id type: {trip_id_type}, value: {trip_id_val}")
         
-        print("\n====== Starting API Server ======")
-        app.run(host='0.0.0.0', port=5004)
+        print(f"\n====== Starting API Server on port {port} ======")
+        app.run(host='0.0.0.0', port=port)
     except Exception as e:
         print(f"Error connecting to MongoDB: {e}")
         exit(1)
