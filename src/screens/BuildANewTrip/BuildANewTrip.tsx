@@ -70,11 +70,11 @@ const theme = createTheme({
 
 // City options for destination selection
 const cityOptions = [
+  "Aspen, CO, USA",
   "Paris, France",
   "London, UK",
   "New York, NY, USA",
   "Tokyo, Japan",
-  "Aspen, CO, USA",
   "Bali, Indonesia",
   "Barcelona, Spain",
   "Rome, Italy",
@@ -108,8 +108,8 @@ const purposeOptions = [
   "Leisure",
   "Business",
   "Family vacation",
-  "Honeymoon",
   "Adventure",
+  "Honeymoon",
   "Cultural experience",
   "Food & wine tour",
   "Beach getaway",
