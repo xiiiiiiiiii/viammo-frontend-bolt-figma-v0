@@ -445,6 +445,7 @@ def create_trip():
 @app.route('/api/hotels/<trip_id>', methods=['GET'])
 def search_hotels_for_trip(trip_id):
     """Search for hotels based on a trip ID"""
+    print(f"\nsearch_hotels_for_trip with trip ID: {trip_id}\n\n")
     try:
         # Parse the limit parameter (default to 10)
         limit = request.args.get('limit', 10, type=int)
