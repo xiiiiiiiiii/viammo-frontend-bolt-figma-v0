@@ -211,17 +211,8 @@ export const TripElementDetail = (): JSX.Element => {
           </CardContent>
         </Card>
 
-        {/* Item Title */}
-        <div className="absolute w-[382px] h-[29px] top-[525px] left-[26px]">
-          <div className="flex flex-col w-[382px] items-start gap-3">
-            <h2 className="font-body-xlarge-bold text-greyscale-900 text-[length:var(--body-xlarge-bold-font-size)] tracking-[var(--body-xlarge-bold-letter-spacing)] leading-[var(--body-xlarge-bold-line-height)]">
-              {currentItem.name}
-            </h2>
-          </div>
-        </div>
-
         {/* Item Description */}
-        <div className="absolute w-[382px] h-[130px] top-[562px] left-7">
+        <div className="absolute w-[382px] h-[130px] top-[525px] left-7">
           <div className="flex flex-col w-[382px] items-start gap-4">
             <p className="font-body-large-bold text-greyscale-900 text-[length:var(--body-large-bold-font-size)] tracking-[var(--body-large-bold-letter-spacing)] leading-[var(--body-large-bold-line-height)]">
               {currentItem.description || "No description available."}
