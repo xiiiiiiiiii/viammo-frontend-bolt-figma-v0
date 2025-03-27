@@ -138,9 +138,9 @@ export const TripElementDetail = (): JSX.Element => {
 
   return (
     <div className="bg-white flex flex-row justify-center w-full">
-      <div className="bg-others-white relative w-[430px] h-[932px] overflow-hidden">
+      <div className="bg-others-white relative w-[375px] h-[932px] overflow-hidden">
         {/* Header with back button and title */}
-        <div className="absolute w-[382px] h-12 top-4 left-9">
+        <div className="absolute w-[345px] h-12 top-4 left-3">
           <div className="flex w-full h-12 items-center gap-4 px-0 py-3">
             <Button variant="ghost" size="icon" className="w-7 h-7 p-0" onClick={handleBack}>
               <ArrowLeftIcon className="w-7 h-7" />
@@ -153,8 +153,8 @@ export const TripElementDetail = (): JSX.Element => {
         </div>
 
         {/* Hotel Name */}
-        <div className="absolute w-[382px] h-[30px] top-[65px] left-[26px]">
-          <div className="flex w-[382px] items-center gap-4">
+        <div className="absolute w-[343px] h-[30px] top-[65px] left-[16px]">
+          <div className="flex w-[343px] items-center gap-4">
             <div className="flex-1 font-h4-bold text-greyscale-900 text-[length:var(--h4-bold-font-size)] tracking-[var(--h4-bold-letter-spacing)] leading-[var(--h4-bold-line-height)]">
               {currentItem.location && typeof currentItem.location === 'object' && 'name' in currentItem.location 
                 ? currentItem.location.name 
@@ -163,10 +163,10 @@ export const TripElementDetail = (): JSX.Element => {
           </div>
         </div>
 
-        <Separator className="absolute w-[386px] h-px top-[103px] left-[23px]" />
+        <Separator className="absolute w-[343px] h-px top-[103px] left-[16px]" />
 
         {/* Trip Details Badges - exact position and spacing to match title */}
-        <div className="absolute top-[111px] left-[26px] flex gap-6">
+        <div className="absolute top-[111px] left-[16px] flex gap-6">
           {getTripDetails().map((detail, index) => (
             <div key={index} className={`${detail.width} h-[38px] flex items-center`}>
               <span className="font-body-large-semibold text-primary-900 text-[length:var(--body-large-semibold-font-size)] tracking-[var(--body-large-semibold-letter-spacing)] leading-[var(--body-large-semibold-line-height)]">
@@ -177,17 +177,17 @@ export const TripElementDetail = (): JSX.Element => {
         </div>
 
         {/* Item Image */}
-        <Card className="absolute w-[382px] h-[296px] top-[155px] left-[22px] border-none rounded-lg overflow-hidden">
+        <Card className="absolute w-[343px] h-[296px] top-[155px] left-[16px] border-none rounded-lg overflow-hidden">
           <CardContent className="p-0 h-full relative">
             <img
               className="w-full h-full object-cover"
               alt={currentItem.name}
               src={typeof currentItem.main_media === 'string' 
                 ? currentItem.main_media 
-                : (currentItem.main_media?.url || 'https://via.placeholder.com/382x296?text=No+Image+Available')}
+                : (currentItem.main_media?.url || 'https://via.placeholder.com/343x296?text=No+Image+Available')}
               onError={(e) => {
                 console.error("Image failed to load:", e);
-                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/382x296?text=No+Image+Available';
+                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/343x296?text=No+Image+Available';
               }}
             />
             {currentItem.notes && (
@@ -199,8 +199,8 @@ export const TripElementDetail = (): JSX.Element => {
         </Card>
 
         {/* Item Description */}
-        <div className="absolute w-[382px] h-[130px] top-[470px] left-7">
-          <div className="flex flex-col w-[382px] items-start gap-4">
+        <div className="absolute w-[343px] h-[130px] top-[470px] left-[16px]">
+          <div className="flex flex-col w-[343px] items-start gap-4">
             <p className="font-body-large-bold text-greyscale-900 text-[length:var(--body-large-bold-font-size)] tracking-[var(--body-large-bold-letter-spacing)] leading-[var(--body-large-bold-line-height)]">
               {currentItem.description || "No description available."}
             </p>
@@ -210,7 +210,7 @@ export const TripElementDetail = (): JSX.Element => {
         {/* Replace Options Button */}
         <Button
           variant="outline"
-          className="absolute w-[382px] h-[65px] top-[679px] left-[21px] bg-primary-50 text-primary-900 rounded-[100px] border-none flex items-center justify-center gap-4"
+          className="absolute w-[343px] h-[65px] top-[679px] left-[16px] bg-primary-50 text-primary-900 rounded-[100px] border-none flex items-center justify-center gap-4"
         >
           <PlusIcon className="w-5 h-5" />
           <span className="font-body-xlarge-bold text-primary-900 text-[length:var(--body-xlarge-bold-font-size)] tracking-[var(--body-xlarge-bold-letter-spacing)] leading-[var(--body-xlarge-bold-line-height)]">
@@ -219,11 +219,11 @@ export const TripElementDetail = (): JSX.Element => {
         </Button>
 
         {/* Add to Itinerary Button */}
-        <div className="absolute w-[430px] h-[125px] top-[771px] left-px">
-          <div className="flex flex-col w-[430px] items-start gap-6 pt-6 pb-9 px-6 bg-others-white border-t border-neutral-100">
+        <div className="absolute w-[375px] h-[125px] top-[771px] left-0">
+          <div className="flex flex-col w-[375px] items-start gap-6 pt-6 pb-9 px-6 bg-others-white border-t border-neutral-100">
             <Button className="w-full h-[56px] bg-primary-900 shadow-button-shadow-1 rounded-[100px] py-[18px]">
               <span className="font-body-xlarge-bold text-others-white text-[length:var(--body-xlarge-bold-font-size)] text-center tracking-[var(--body-xlarge-bold-letter-spacing)] leading-[var(--body-xlarge-bold-line-height)]">
-                Add to itinerary
+                Add to Itinerary
               </span>
             </Button>
           </div>
