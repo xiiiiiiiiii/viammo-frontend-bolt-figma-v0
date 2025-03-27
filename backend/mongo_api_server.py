@@ -763,13 +763,14 @@ def search_hotels_for_trip(trip_id):
             final_query = {"$and": query_conditions} if len(query_conditions) > 1 else query_conditions[0] if query_conditions else {}
             
             # Find matched hotels
+            mongo_search_limit = max(10, limit)
             # If using full-text search, use the textScore for sorting
             if search_keywords and text_search_string:
                 # Get the limited results with proper sorting
-                search_results = list(hotels_collection.find(final_query, projection).sort(text_sort).limit(limit))
+                search_results = list(hotels_collection.find(final_query, projection).sort(text_sort).limit(mongo_search_limit))
             else:
                 # Just sort by rating if no text search
-                search_results = list(hotels_collection.find(final_query).sort([("rating", -1)]).limit(limit))
+                search_results = list(hotels_collection.find(final_query).sort([("rating", -1)]).limit(mongo_search_limit))
             
             # Process results
             if search_results:
@@ -952,7 +953,8 @@ def search_hotels_for_trip(trip_id):
                     
                     formatted_results.append(formatted_hotel)
                 
-                return json_response(formatted_results)
+                # Return the results limited to the requested count
+                return json_response(formatted_results[:limit])
             else:
                 return json_response([])
                 
