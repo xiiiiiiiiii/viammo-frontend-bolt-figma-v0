@@ -1,7 +1,6 @@
 import { ArrowLeftIcon, PlusIcon } from "lucide-react";
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
 import { Separator } from "../../components/ui/separator";
@@ -85,7 +84,7 @@ export const TripElementDetail = (): JSX.Element => {
     if (currentItem?.date) {
       const endDateStr = currentItem.endDate || currentItem.date;
       const dateRange = formatDate(currentItem.date) + (currentItem.date !== endDateStr ? ` - ${formatDate(endDateStr)}` : '');
-      details.push({ label: dateRange, width: "w-[161px]" });
+      details.push({ label: dateRange, width: "w-[200px]" });
     }
     
     // Price
@@ -164,33 +163,31 @@ export const TripElementDetail = (): JSX.Element => {
         </div>
 
         {/* Hotel Name */}
-        <div className="absolute w-[382px] h-[38px] top-[100px] left-[26px]">
+        <div className="absolute w-[382px] h-[30px] top-[100px] left-[26px]">
           <div className="flex w-[382px] items-center gap-4">
             <div className="flex-1 font-h4-bold text-greyscale-900 text-[length:var(--h4-bold-font-size)] tracking-[var(--h4-bold-letter-spacing)] leading-[var(--h4-bold-line-height)]">
-              {currentItem.name}
+              {currentItem.location && typeof currentItem.location === 'object' && 'name' in currentItem.location 
+                ? currentItem.location.name 
+                : currentItem.name}
             </div>
           </div>
         </div>
 
-        <Separator className="absolute w-[386px] h-px top-[146px] left-[23px]" />
+        <Separator className="absolute w-[386px] h-px top-[138px] left-[23px]" />
 
-        {/* Trip Details Badges */}
-        <div className="absolute top-[164px] left-[23px] flex gap-2">
+        {/* Trip Details Badges - exact position and spacing to match title */}
+        <div className="absolute top-[146px] left-[26px] flex gap-6">
           {getTripDetails().map((detail, index) => (
-            <Badge
-              key={index}
-              variant="outline"
-              className={`${detail.width} h-[42px] rounded-[100px] border-2 border-[#17ce92] bg-transparent px-5 py-2 flex items-center justify-center`}
-            >
+            <div key={index} className={`${detail.width} h-[38px] flex items-center`}>
               <span className="font-body-large-semibold text-primary-900 text-[length:var(--body-large-semibold-font-size)] tracking-[var(--body-large-semibold-letter-spacing)] leading-[var(--body-large-semibold-line-height)]">
                 {detail.label}
               </span>
-            </Badge>
+            </div>
           ))}
         </div>
 
         {/* Item Image */}
-        <Card className="absolute w-[382px] h-[296px] top-[218px] left-[22px] border-none rounded-lg overflow-hidden">
+        <Card className="absolute w-[382px] h-[296px] top-[190px] left-[22px] border-none rounded-lg overflow-hidden">
           <CardContent className="p-0 h-full relative">
             <img
               className="w-full h-full object-cover"
