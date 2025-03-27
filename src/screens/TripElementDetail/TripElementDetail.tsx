@@ -108,8 +108,16 @@ export const TripElementDetail = (): JSX.Element => {
   };
 
   const handleBack = () => {
-    // Navigate back to trip calendar, reusing the ID that's already in context
-    navigate('/trip-draft-calendar');
+    // Navigate back to trip calendar, including the tripId in the URL and setting a refresh state
+    if (currentTripId) {
+      console.log("Navigating back to calendar with tripId:", currentTripId);
+      navigate(`/trip-draft-calendar/${encodeURIComponent(currentTripId)}`, {
+        state: { forceRefresh: true, timestamp: Date.now() }
+      });
+    } else {
+      // Fallback if somehow we don't have a trip ID
+      navigate('/trips');
+    }
   };
 
   if (loading) {
@@ -187,7 +195,9 @@ export const TripElementDetail = (): JSX.Element => {
             <img
               className="w-full h-full object-cover"
               alt={currentItem.name}
-              src={currentItem.main_media || 'https://via.placeholder.com/382x296?text=No+Image+Available'}
+              src={typeof currentItem.main_media === 'string' 
+                ? currentItem.main_media 
+                : (currentItem.main_media?.url || 'https://via.placeholder.com/382x296?text=No+Image+Available')}
               onError={(e) => {
                 console.error("Image failed to load:", e);
                 (e.target as HTMLImageElement).src = 'https://via.placeholder.com/382x296?text=No+Image+Available';

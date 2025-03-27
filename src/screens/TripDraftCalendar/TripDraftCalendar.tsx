@@ -88,11 +88,12 @@ const TripDraftCalendar: React.FC = () => {
   const { id: rawPathId } = useParams<{ id?: string }>();
   const location = useLocation();
   const isFromBuildNewTrip = location.state?.fromBuildNewTrip === true;
+  const forceRefresh = location.state?.forceRefresh === true;
   
   // Ref to track if we've already added a hotel for this trip
   const hotelAddedRef = useRef<{[key: string]: boolean}>({});
   
-  console.log("Navigation state:", location.state, "isFromBuildNewTrip:", isFromBuildNewTrip);
+  console.log("Navigation state:", location.state, "isFromBuildNewTrip:", isFromBuildNewTrip, "forceRefresh:", forceRefresh);
 
   // Get trip context for state persistence
   const { 
@@ -228,10 +229,10 @@ const TripDraftCalendar: React.FC = () => {
     }
   }, [pathId, currentTripId, currentTrip, setCurrentTripId, setCurrentTrip, setCalendarItems, isFromBuildNewTrip]);
 
-  // Use effect hook to fetch data
+  // Use effect hook to fetch data, with explicit handling for forceRefresh from navigation state
   useEffect(() => {
     // We need to respond to changes in the pathId
-    console.log("useEffect triggered for fetchData with pathId:", pathId);
+    console.log("useEffect triggered for fetchData with pathId:", pathId, "forceRefresh:", forceRefresh);
     
     // Only proceed if we have a valid pathId
     if (pathId) {
@@ -241,7 +242,27 @@ const TripDraftCalendar: React.FC = () => {
         setLoading(false);
       });
     }
-  }, [pathId]); // Depend on pathId changes, but handle hotel search logic in fetchData
+  }, [pathId, location.pathname, forceRefresh, location.state?.timestamp, fetchData]); // Added forceRefresh and timestamp dependency
+
+  // Additional hook to handle focus events - refresh data when component gets focus again
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log("Window focus detected, refreshing calendar data");
+      if (pathId && !loading) {
+        fetchData().catch(err => {
+          console.error("Error refreshing data on focus:", err);
+        });
+      }
+    };
+
+    // Add event listener for when the window gets focus again
+    window.addEventListener('focus', handleFocus);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [pathId, fetchData, loading]);
 
   // Format date function
   const formatDate = (dateString: string) => {
