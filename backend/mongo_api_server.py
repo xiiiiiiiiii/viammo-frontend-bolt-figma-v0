@@ -111,7 +111,7 @@ def get_mock_trips():
             "createdAt": "2024-01-15T08:00:00.000Z",
             "updatedAt": "2024-03-15T08:00:00.000Z",
             "status": "draft",
-            "totalBudget": 20000,
+            "totalBudget": "$$$$",
             "notes": "Authentic charm"
         },
         {
@@ -124,7 +124,7 @@ def get_mock_trips():
             "createdAt": "2024-01-20T08:00:00.000Z",
             "updatedAt": "2024-03-18T08:00:00.000Z",
             "status": "draft",
-            "totalBudget": 25000,
+            "totalBudget": "$$$$",
             "notes": "Explore Japanese culture"
         }
     ]
@@ -695,7 +695,36 @@ def search_hotels_for_trip(trip_id):
             
             # Add price level filter if available
             if price_level:
-                query_conditions.append({"price_level": price_level})
+                # Create an OR query for price levels including one $ below and one $ above
+                price_conditions = []
+                
+                # Add the exact price level
+                price_conditions.append({"price_level": price_level})
+                
+                # Determine price level by counting $ symbols
+                if price_level == "$":
+                    # Only add one level above for $ (can't go below $)
+                    price_conditions.append({"price_level": "$$"})
+                elif price_level == "$$":
+                    # Add one level below and one level above
+                    price_conditions.append({"price_level": "$"})
+                    price_conditions.append({"price_level": "$$$"})
+                elif price_level == "$$$":
+                    # Add one level below and one level above
+                    price_conditions.append({"price_level": "$$"})
+                    price_conditions.append({"price_level": "$$$$"})
+                elif price_level == "$$$$":
+                    # Only add one level below for $$$$ (can't go above $$$$)
+                    price_conditions.append({"price_level": "$$$"})
+                
+                # Add OR condition to match any price level in the range
+                if len(price_conditions) > 1:
+                    query_conditions.append({"$or": price_conditions})
+                else:
+                    query_conditions.append(price_conditions[0])
+            
+            # Ensure only hotels with descriptions are returned
+            query_conditions.append({"description": {"$exists": True, "$ne": ""}})
             
             # Check if the collection has a text index
             indexes = hotels_collection.list_indexes()
@@ -753,6 +782,9 @@ def search_hotels_for_trip(trip_id):
             
             # Process results
             if search_results:
+                # Debug: Print how many results were found
+                print(f"\nFound {len(search_results)} initial results from MongoDB")
+                
                 # Convert MongoDB documents to displayable JSON
                 parsed_results = json.loads(dumps(search_results))
                 
