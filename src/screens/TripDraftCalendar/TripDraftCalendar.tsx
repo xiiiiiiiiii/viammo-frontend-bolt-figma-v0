@@ -100,7 +100,9 @@ const TripDraftCalendar: React.FC = () => {
   const [fatalError, setFatalError] = useState<Error | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-
+  const [buildingTrip, setBuildingTrip] = useState<boolean>(false);
+  const [buildingTripMessage, setBuildingTripMessage] = useState<string>('Building your trip...');
+  
   // Process the trip ID from URL parameter correctly
   const pathId = rawPathId ? decodeURIComponent(rawPathId) : null;
   console.log("Raw path ID:", rawPathId);
@@ -163,6 +165,32 @@ const TripDraftCalendar: React.FC = () => {
         
         if (Array.isArray(calendarData)) {
           setCalendarItems(calendarData);
+          
+          // Check if we need to fetch and add hotel recommendations
+          const hasAccommodation = calendarData.some(item => item.type === 'accommodation');
+          if (!hasAccommodation) {
+            // No accommodation found, search and save hotel recommendations
+            try {
+              setBuildingTrip(true);
+              setBuildingTripMessage('Finding and saving hotel recommendations for your trip...');
+              
+              // Search and save hotel recommendations
+              const savedHotel = await api.searchAndSaveHotelRecommendation(tripId);
+              console.log("Hotel recommendation saved to calendar:", savedHotel);
+              
+              // Add the saved hotel to the local calendar items state
+              const updatedItems = [...calendarItems, savedHotel];
+              setCalendarItems(updatedItems);
+              
+              // Show success message or notification here if desired
+            } catch (hotelError) {
+              console.error("Error searching for and saving hotel recommendations:", hotelError);
+              // Non-fatal error - don't throw, just log
+              setError(`Could not add hotel recommendation: ${hotelError instanceof Error ? hotelError.message : 'Unknown error'}`);
+            } finally {
+              setBuildingTrip(false);
+            }
+          }
         } else {
           console.warn("Calendar data is not an array, setting empty array");
           setCalendarItems([]);
@@ -312,13 +340,25 @@ const TripDraftCalendar: React.FC = () => {
 
   // If there's a fatal error, show the error component
   if (fatalError) {
-    return <ErrorFallback error={fatalError} resetError={resetError} />;
+    return <ErrorFallback error={fatalError} resetError={() => setFatalError(null)} />;
   }
+
+  // Building trip spinner overlay
+  const BuildingTripOverlay = () => (
+    <div className="fixed inset-0 bg-black/70 z-50 flex flex-col items-center justify-center">
+      <div className="bg-white p-6 rounded-lg max-w-sm w-full flex flex-col items-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-700 mb-4"></div>
+        <h3 className="text-lg font-medium mb-2">Building Your Trip</h3>
+        <p className="text-gray-600 text-center">{buildingTripMessage}</p>
+      </div>
+    </div>
+  );
 
   try {
     // Render the component
     return (
       <div className="max-w-md mx-auto h-screen bg-white flex flex-col">
+        {buildingTrip && <BuildingTripOverlay />}
         {/* Header with back button and title */}
         <div className="flex items-center p-4 border-b">
           <button 

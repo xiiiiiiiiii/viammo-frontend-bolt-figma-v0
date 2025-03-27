@@ -117,31 +117,97 @@ export const api = {
   // Delete a trip and its calendar items by trip ID
   deleteTrip: async (tripId: string): Promise<{ success: boolean; message: string }> => {
     try {
-      console.log(`Deleting trip with ID: ${tripId}`);
+      console.log(`Deleting trip with ID: ${tripId}...`);
       
-      // Call API server to delete the trip
+      // Delete trip from MongoDB
       const response = await axios.delete(`${API_BASE_URL}/trips/${tripId}`);
-      console.log('Delete response:', response.data);
+      console.log('API response for delete trip:', response.data);
       
-      return { 
-        success: true, 
-        message: 'Trip and associated calendar items deleted successfully' 
-      };
-    } catch (error) {
-      console.error('Error deleting trip:', error);
-      
-      // Handle specific error cases
-      if (axios.isAxiosError(error) && error.response) {
-        return { 
-          success: false, 
-          message: error.response.data.error || 'Failed to delete trip' 
+      if (response.data && response.data.success) {
+        return {
+          success: true,
+          message: response.data.message || 'Trip successfully deleted'
         };
       }
       
-      return { 
-        success: false, 
-        message: 'Network error while deleting trip' 
-      };
+      throw new Error(response.data.error || 'Failed to delete trip');
+    } catch (error) {
+      console.error('Error deleting trip from MongoDB:', error);
+      throw error instanceof Error 
+        ? error 
+        : new Error('An unknown error occurred while deleting the trip');
     }
   },
+  
+  // Fetch hotel recommendations for a trip
+  getHotelRecommendations: async (tripId: string): Promise<TripCalendarItem[]> => {
+    try {
+      console.log(`Fetching hotel recommendations for trip with ID: ${tripId}...`);
+      
+      // Get a single hotel recommendation from MongoDB API
+      const response = await axios.get(`${API_BASE_URL}/hotels/${tripId}?limit=1`);
+      console.log('API response for hotel recommendations:', response.data);
+      
+      if (response.data && Array.isArray(response.data)) {
+        return response.data;
+      }
+      
+      throw new Error('Invalid response from API server');
+    } catch (error) {
+      console.error('Error fetching hotel recommendations:', error);
+      throw error instanceof Error 
+        ? error 
+        : new Error('Failed to fetch hotel recommendations');
+    }
+  },
+  
+  // Add a hotel to the trip calendar
+  addHotelToCalendar: async (tripId: string, hotelData: TripCalendarItem): Promise<TripCalendarItem> => {
+    try {
+      console.log(`Adding hotel to trip calendar for trip ID: ${tripId}...`);
+      console.log('Hotel data:', hotelData);
+      
+      // Direct MongoDB operation to add the calendar item
+      // We need to add the item directly to the trips collection as a calendar item
+      // Remove any unnecessary fields before saving
+      const { original_data, ...cleanedHotelData } = hotelData as any;
+      
+      // POST to the trips API endpoint with calendar item data
+      const response = await axios.post(`${API_BASE_URL}/trips/${tripId}/calendar`, cleanedHotelData);
+      console.log('API response for adding hotel to calendar:', response.data);
+      
+      if (response.data && response.data._id) {
+        return response.data;
+      }
+      
+      throw new Error('Failed to add hotel to trip calendar');
+    } catch (error) {
+      console.error('Error adding hotel to trip calendar:', error);
+      throw error instanceof Error 
+        ? error 
+        : new Error('An unknown error occurred while adding the hotel to the trip calendar');
+    }
+  },
+  
+  // Search for and save a hotel recommendation in one call
+  searchAndSaveHotelRecommendation: async (tripId: string): Promise<TripCalendarItem> => {
+    try {
+      console.log(`Searching for and saving a hotel recommendation for trip ID: ${tripId}...`);
+      
+      // Call the combined endpoint
+      const response = await axios.post(`${API_BASE_URL}/hotels/${tripId}/save`);
+      console.log('API response for hotel search and save:', response.data);
+      
+      if (response.data && response.data._id) {
+        return response.data;
+      }
+      
+      throw new Error('Failed to get and save hotel recommendation');
+    } catch (error) {
+      console.error('Error getting and saving hotel recommendation:', error);
+      throw error instanceof Error 
+        ? error 
+        : new Error('Failed to get and save hotel recommendation');
+    }
+  }
 };

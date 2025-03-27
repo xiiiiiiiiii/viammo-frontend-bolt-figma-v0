@@ -29,6 +29,7 @@ from bson.objectid import ObjectId
 from bson.json_util import dumps, loads
 from datetime import datetime
 import json  # Move json import here
+import requests  # Import requests for API calls
 
 # Load environment variables from .env file
 load_dotenv()
@@ -962,6 +963,68 @@ def search_hotels_for_trip(trip_id):
             return json_response({"error": f"Error processing trip data: {str(e)}"}), 500
     except Exception as e:
         return json_response({"error": f"Error searching hotels: {str(e)}"}), 500
+
+@app.route('/api/hotels/<trip_id>/save', methods=['POST'])
+def search_and_save_hotel(trip_id):
+    """Search for a hotel based on a trip ID and save it to the trip_calendar collection"""
+    try:
+        print(f"Searching for a hotel and saving to trip calendar for trip ID: {trip_id}")
+        
+        # First, make a direct API call to the search endpoint instead of using test_request_context
+        # This is more reliable and avoids issues with request context
+        try:
+            # Call the search_hotels_for_trip function directly with limit=1
+            # Get trip data from MongoDB
+            trip_id_obj = ObjectId(trip_id)
+            trip_data = db.trips.find_one({"_id": trip_id_obj})
+            
+            if not trip_data:
+                return json_response({"error": f"No trip found with ID: {trip_id}"}), 404
+            
+            # Call the existing endpoint directly with limit=1
+            response = requests.get(f"http://localhost:5001/api/hotels/{trip_id}?limit=1")
+            if response.status_code != 200:
+                return json_response({"error": f"Error fetching hotel data: {response.text}"}), response.status_code
+            
+            # Parse the JSON response
+            hotels_data = response.json()
+            
+            # Check if we have results
+            if not hotels_data or len(hotels_data) == 0:
+                return json_response({"error": "No hotels found for this trip"}), 404
+            
+            # Get the first hotel (we asked for limit=1)
+            hotel = hotels_data[0]
+            
+            # Make sure we have a hotel to save
+            if hotel:
+                print(f"Saving hotel to trip calendar: {hotel['name']}")
+                
+                # Add trip_id to the hotel data
+                hotel['trip_id'] = trip_id
+                
+                # Insert into trip_calendar collection
+                result = db.trip_calendar.insert_one(hotel)
+                
+                # Add the MongoDB ID to the result
+                hotel['_id'] = str(result.inserted_id)
+                
+                # Return the saved hotel
+                return json_response(hotel)
+            else:
+                return json_response({"error": "No hotels found for this trip"}), 404
+                
+        except Exception as e:
+            import traceback
+            print(f"Error searching or saving hotel: {e}")
+            print(traceback.format_exc())
+            return json_response({"error": f"Error searching or saving hotel: {str(e)}"}), 500
+                
+    except Exception as e:
+        import traceback
+        print(f"Error searching or saving hotel: {e}")
+        print(traceback.format_exc())
+        return json_response({"error": f"Error searching or saving hotel: {str(e)}"}), 500
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
