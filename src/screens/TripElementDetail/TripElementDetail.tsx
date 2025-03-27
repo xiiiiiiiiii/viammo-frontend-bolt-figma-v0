@@ -139,18 +139,8 @@ export const TripElementDetail = (): JSX.Element => {
   return (
     <div className="bg-white flex flex-row justify-center w-full">
       <div className="bg-others-white relative w-[430px] h-[932px] overflow-hidden">
-        {/* Status Bar */}
-        <div className="absolute w-full h-11 top-0 left-0">
-          <div className="absolute h-[26px] top-2 left-[23px] font-body-large-semibold text-others-black text-[length:var(--body-large-semibold-font-size)] tracking-[var(--body-large-semibold-letter-spacing)] leading-[var(--body-large-semibold-line-height)] whitespace-nowrap">
-            9:41
-          </div>
-          <div className="absolute w-[18px] h-2.5 top-[18px] left-[336px] bg-[url(https://c.animaapp.com/m8dlap7ryGvklH/img/exclude.svg)] bg-[100%_100%]" />
-          <div className="w-[15px] h-[11px] top-[17px] left-[359px] bg-[url(https://c.animaapp.com/m8dlap7ryGvklH/img/union.svg)] absolute bg-[100%_100%]" />
-          <div className="w-[27px] h-[13px] top-4 left-[380px] bg-[url(https://c.animaapp.com/m8dlap7ryGvklH/img/group.png)] absolute bg-[100%_100%]" />
-        </div>
-
         {/* Header with back button and title */}
-        <div className="absolute w-[382px] h-12 top-11 left-9">
+        <div className="absolute w-[382px] h-12 top-4 left-9">
           <div className="flex w-full h-12 items-center gap-4 px-0 py-3">
             <Button variant="ghost" size="icon" className="w-7 h-7 p-0" onClick={handleBack}>
               <ArrowLeftIcon className="w-7 h-7" />
@@ -163,7 +153,7 @@ export const TripElementDetail = (): JSX.Element => {
         </div>
 
         {/* Hotel Name */}
-        <div className="absolute w-[382px] h-[30px] top-[100px] left-[26px]">
+        <div className="absolute w-[382px] h-[30px] top-[65px] left-[26px]">
           <div className="flex w-[382px] items-center gap-4">
             <div className="flex-1 font-h4-bold text-greyscale-900 text-[length:var(--h4-bold-font-size)] tracking-[var(--h4-bold-letter-spacing)] leading-[var(--h4-bold-line-height)]">
               {currentItem.location && typeof currentItem.location === 'object' && 'name' in currentItem.location 
@@ -173,10 +163,10 @@ export const TripElementDetail = (): JSX.Element => {
           </div>
         </div>
 
-        <Separator className="absolute w-[386px] h-px top-[138px] left-[23px]" />
+        <Separator className="absolute w-[386px] h-px top-[103px] left-[23px]" />
 
         {/* Trip Details Badges - exact position and spacing to match title */}
-        <div className="absolute top-[146px] left-[26px] flex gap-6">
+        <div className="absolute top-[111px] left-[26px] flex gap-6">
           {getTripDetails().map((detail, index) => (
             <div key={index} className={`${detail.width} h-[38px] flex items-center`}>
               <span className="font-body-large-semibold text-primary-900 text-[length:var(--body-large-semibold-font-size)] tracking-[var(--body-large-semibold-letter-spacing)] leading-[var(--body-large-semibold-line-height)]">
@@ -187,7 +177,7 @@ export const TripElementDetail = (): JSX.Element => {
         </div>
 
         {/* Item Image */}
-        <Card className="absolute w-[382px] h-[296px] top-[190px] left-[22px] border-none rounded-lg overflow-hidden">
+        <Card className="absolute w-[382px] h-[296px] top-[155px] left-[22px] border-none rounded-lg overflow-hidden">
           <CardContent className="p-0 h-full relative">
             <img
               className="w-full h-full object-cover"
@@ -209,7 +199,7 @@ export const TripElementDetail = (): JSX.Element => {
         </Card>
 
         {/* Item Description */}
-        <div className="absolute w-[382px] h-[130px] top-[525px] left-7">
+        <div className="absolute w-[382px] h-[130px] top-[470px] left-7">
           <div className="flex flex-col w-[382px] items-start gap-4">
             <p className="font-body-large-bold text-greyscale-900 text-[length:var(--body-large-bold-font-size)] tracking-[var(--body-large-bold-letter-spacing)] leading-[var(--body-large-bold-line-height)]">
               {currentItem.description || "No description available."}
@@ -220,7 +210,7 @@ export const TripElementDetail = (): JSX.Element => {
         {/* Replace Options Button */}
         <Button
           variant="outline"
-          className="absolute w-[382px] h-[65px] top-[714px] left-[21px] bg-primary-50 text-primary-900 rounded-[100px] border-none flex items-center justify-center gap-4"
+          className="absolute w-[382px] h-[65px] top-[679px] left-[21px] bg-primary-50 text-primary-900 rounded-[100px] border-none flex items-center justify-center gap-4"
         >
           <PlusIcon className="w-5 h-5" />
           <span className="font-body-xlarge-bold text-primary-900 text-[length:var(--body-xlarge-bold-font-size)] tracking-[var(--body-xlarge-bold-letter-spacing)] leading-[var(--body-xlarge-bold-line-height)]">
@@ -229,7 +219,7 @@ export const TripElementDetail = (): JSX.Element => {
         </Button>
 
         {/* Add to Itinerary Button */}
-        <div className="absolute w-[430px] h-[125px] top-[806px] left-px">
+        <div className="absolute w-[430px] h-[125px] top-[771px] left-px">
           <div className="flex flex-col w-[430px] items-start gap-6 pt-6 pb-9 px-6 bg-others-white border-t border-neutral-100">
             <Button className="w-full h-[56px] bg-primary-900 shadow-button-shadow-1 rounded-[100px] py-[18px]">
               <span className="font-body-xlarge-bold text-others-white text-[length:var(--body-xlarge-bold-font-size)] text-center tracking-[var(--body-xlarge-bold-letter-spacing)] leading-[var(--body-xlarge-bold-line-height)]">
