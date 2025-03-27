@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Button } from "../../components/ui/button";
 import { CalendarIcon, MapPinIcon, UserIcon, ArrowRightIcon, PlusIcon, Trash2Icon } from 'lucide-react';
@@ -89,6 +89,9 @@ const TripDraftCalendar: React.FC = () => {
   const location = useLocation();
   const isFromBuildNewTrip = location.state?.fromBuildNewTrip === true;
   
+  // Ref to track if we've already added a hotel for this trip
+  const hotelAddedRef = useRef<{[key: string]: boolean}>({});
+  
   console.log("Navigation state:", location.state, "isFromBuildNewTrip:", isFromBuildNewTrip);
 
   // Get trip context for state persistence
@@ -172,8 +175,17 @@ const TripDraftCalendar: React.FC = () => {
           
           // Check if we need to fetch and add hotel recommendations
           const hasAccommodation = calendarData.some(item => item.type === 'accommodation');
-          if (!hasAccommodation && isFromBuildNewTrip) {
-            // Only search and save hotel recommendations if coming from BuildANewTrip screen
+          
+          // Only add a hotel if:
+          // 1. We don't already have one
+          // 2. We're coming from BuildANewTrip
+          // 3. We haven't already added one for this trip in this session
+          if (!hasAccommodation && isFromBuildNewTrip && !hotelAddedRef.current[tripId]) {
+            // Mark that we're adding a hotel for this trip
+            hotelAddedRef.current[tripId] = true;
+            console.log(`Setting hotel added flag for trip ${tripId}`);
+            
+            // Only search and save hotel recommendations once
             console.log("Coming from BuildANewTrip screen - searching for hotel recommendations");
             try {
               setBuildingTrip(true);
@@ -218,13 +230,18 @@ const TripDraftCalendar: React.FC = () => {
 
   // Use effect hook to fetch data
   useEffect(() => {
-    console.log("useEffect triggered for fetchData");
-    fetchData().catch(err => {
-      console.error("Unhandled error in fetchData effect:", err);
-      setError(`Unhandled error: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      setLoading(false);
-    });
-  }, [fetchData]);
+    // We need to respond to changes in the pathId
+    console.log("useEffect triggered for fetchData with pathId:", pathId);
+    
+    // Only proceed if we have a valid pathId
+    if (pathId) {
+      fetchData().catch(err => {
+        console.error("Unhandled error in fetchData effect:", err);
+        setError(`Unhandled error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        setLoading(false);
+      });
+    }
+  }, [pathId]); // Depend on pathId changes, but handle hotel search logic in fetchData
 
   // Format date function
   const formatDate = (dateString: string) => {
