@@ -197,11 +197,17 @@ const TripDraftCalendar: React.FC = () => {
               const savedHotel = await api.searchAndSaveHotelRecommendation(tripId);
               console.log("Hotel recommendation saved to calendar:", savedHotel);
               
-              // Add the saved hotel to the local calendar items state
-              const updatedItems = [...calendarItems, savedHotel];
-              setCalendarItems(updatedItems);
-              
-              // Show success message or notification here if desired
+              // After saving the hotel, refetch the calendar data to avoid duplication
+              const refreshedCalendarData = await api.getTripCalendar(tripId);
+              if (Array.isArray(refreshedCalendarData)) {
+                setCalendarItems(refreshedCalendarData);
+                console.log("Calendar data refreshed after hotel save to prevent duplication");
+              } else {
+                // Fallback if the refetch fails for some reason
+                const updatedItems = [...calendarItems, savedHotel];
+                setCalendarItems(updatedItems);
+                console.log("WARNING: Using fallback method to update calendar items");
+              }
             } catch (hotelError) {
               console.error("Error searching for and saving hotel recommendations:", hotelError);
               // Non-fatal error - don't throw, just log
