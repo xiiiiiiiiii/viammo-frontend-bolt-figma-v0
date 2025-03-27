@@ -440,7 +440,9 @@ export const BuildANewTrip = (): JSX.Element => {
         setCurrentTrip(tripWithId);
         
         // Navigate to the calendar view with the new trip ID
-        navigate(`/trip-draft-calendar/${encodeURIComponent(String(response.data.trip_id))}`);
+        navigate(`/trip-draft-calendar/${encodeURIComponent(String(response.data.trip_id))}`, {
+          state: { fromBuildNewTrip: true }
+        });
       } else {
         throw new Error("Failed to get trip ID from server: " + JSON.stringify(response.data));
       }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Button } from "../../components/ui/button";
 import { CalendarIcon, MapPinIcon, UserIcon, ArrowRightIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import { api } from "../../services/api";
@@ -86,7 +86,11 @@ const TripDraftCalendar: React.FC = () => {
 
   const navigate = useNavigate();
   const { id: rawPathId } = useParams<{ id?: string }>();
+  const location = useLocation();
+  const isFromBuildNewTrip = location.state?.fromBuildNewTrip === true;
   
+  console.log("Navigation state:", location.state, "isFromBuildNewTrip:", isFromBuildNewTrip);
+
   // Get trip context for state persistence
   const { 
     currentTripId, setCurrentTripId,
@@ -168,8 +172,9 @@ const TripDraftCalendar: React.FC = () => {
           
           // Check if we need to fetch and add hotel recommendations
           const hasAccommodation = calendarData.some(item => item.type === 'accommodation');
-          if (!hasAccommodation) {
-            // No accommodation found, search and save hotel recommendations
+          if (!hasAccommodation && isFromBuildNewTrip) {
+            // Only search and save hotel recommendations if coming from BuildANewTrip screen
+            console.log("Coming from BuildANewTrip screen - searching for hotel recommendations");
             try {
               setBuildingTrip(true);
               setBuildingTripMessage('Finding and saving hotel recommendations for your trip...');
@@ -209,7 +214,7 @@ const TripDraftCalendar: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [pathId, currentTripId, currentTrip, setCurrentTripId, setCurrentTrip, setCalendarItems]);
+  }, [pathId, currentTripId, currentTrip, setCurrentTripId, setCurrentTrip, setCalendarItems, isFromBuildNewTrip]);
 
   // Use effect hook to fetch data
   useEffect(() => {

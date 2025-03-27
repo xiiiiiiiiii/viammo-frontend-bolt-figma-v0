@@ -270,12 +270,7 @@ def delete_trip(trip_id):
     try:
         # Validate trip_id
         try:
-            # If it's a valid ObjectId, use it directly
-            if ObjectId.is_valid(trip_id):
-                mongo_trip_id = ObjectId(trip_id)
-            else:
-                # Otherwise treat it as a string ID
-                mongo_trip_id = trip_id
+            mongo_trip_id = ObjectId(trip_id)
         except Exception as e:
             print(f"Invalid trip ID format: {trip_id}")
             return json_response({"success": False, "error": "Invalid trip ID format"}), 400
@@ -286,10 +281,18 @@ def delete_trip(trip_id):
             db = client[database_name]
             
             # First, delete any calendar items associated with this trip
-            calendar_result = db.trip_calendar.delete_many({"trip_id": mongo_trip_id})
+            print(f"Deleting trip calendar items for trip ID: {trip_id}")
+            
+            # When trip_id is stored as an ObjectId
+            calendar_result_obj = db.trip_calendar.delete_many({"trip_id": mongo_trip_id})
+            print(f"Deleted {calendar_result_obj.deleted_count} calendar items with ObjectId trip_id")
+            
+            total_calendar_items_deleted = calendar_result_obj.deleted_count
+            print(f"Total calendar items deleted: {total_calendar_items_deleted}")
             
             # Then delete the trip itself
             trip_result = db.trips.delete_one({"_id": mongo_trip_id})
+            print(f"Trip deletion result: {trip_result.deleted_count} trips deleted")
             
             if trip_result.deleted_count == 0:
                 return json_response({
@@ -299,9 +302,7 @@ def delete_trip(trip_id):
             
             return json_response({
                 "success": True,
-                "message": "Trip and associated calendar items deleted successfully",
-                "trip_deleted": trip_result.deleted_count > 0,
-                "calendar_items_deleted": calendar_result.deleted_count
+                "message": f"Trip deleted successfully. Also removed {total_calendar_items_deleted} calendar items."
             })
             
         except Exception as mongo_error:
@@ -323,39 +324,15 @@ def get_calendar(trip_id):
         clean_trip_id = trip_id.strip('"\'').strip()
         print(f"Cleaned trip ID: {clean_trip_id}")
         
-        # Try to convert to ObjectId for MongoDB
-        try:
-            from bson.objectid import ObjectId
-            object_id = ObjectId(clean_trip_id)
-            print(f"Successfully converted trip_id to ObjectId: {object_id}")
-            
-            # Try to find calendar items by ObjectId
-            calendar_items = list(db.trip_calendar.find({"trip_id": object_id}))
-            
-            if calendar_items:
-                print(f"Query with trip_id as ObjectId found {len(calendar_items)} items")
-                return json_response(calendar_items)
-        except Exception as e:
-            print(f"Error finding calendar items by ObjectId: {e}")
+        from bson.objectid import ObjectId
+        object_id = ObjectId(clean_trip_id)
+        print(f"Successfully converted trip_id to ObjectId: {object_id}")
         
-        # If not found with ObjectId, try with string trip_id
-        calendar_items = list(db.trip_calendar.find({"trip_id": clean_trip_id}))
-        
-        if calendar_items:
-            print(f"Query with trip_id as string found {len(calendar_items)} items")
-            return json_response(calendar_items)
-            
-        # Try with different field name (tripId vs trip_id)
-        calendar_items = list(db.trip_calendar.find({"tripId": clean_trip_id}))
-        
-        if calendar_items:
-            print(f"Query with tripId as string found {len(calendar_items)} items")
-            return json_response(calendar_items)
-            
-        # Return empty array for newly created trips with no elements yet
-        print(f"No calendar items found for trip ID {clean_trip_id}. Returning empty array.")
-        return json_response([])
-        
+        # Try to find calendar items by ObjectId
+        calendar_items = list(db.trip_calendar.find({"trip_id": object_id}))
+        print(f"Query with trip_id as ObjectId found {len(calendar_items)} items")
+        return json_response(calendar_items)
+    
     except Exception as e:
         print(f"Error getting calendar items: {e}")
         return json_response({"error": str(e)}), 500
@@ -1000,8 +977,8 @@ def search_and_save_hotel(trip_id):
             if hotel:
                 print(f"Saving hotel to trip calendar: {hotel['name']}")
                 
-                # Add trip_id to the hotel data
-                hotel['trip_id'] = trip_id
+                # Add trip_id to the hotel data as an ObjectId
+                hotel['trip_id'] = ObjectId(trip_id)
                 
                 # Insert into trip_calendar collection
                 result = db.trip_calendar.insert_one(hotel)
