@@ -205,6 +205,12 @@ export const api = {
       throw new Error('Failed to get and save hotel recommendation');
     } catch (error) {
       console.error('Error getting and saving hotel recommendation:', error);
+      
+      // Check if it's our special "no hotels" error
+      if (error instanceof Error && error.message === 'NO_RESULTS_FOUND') {
+        throw new Error('NO_RESULTS_FOUND');
+      }
+      
       throw error instanceof Error 
         ? error 
         : new Error('Failed to get and save hotel recommendation');

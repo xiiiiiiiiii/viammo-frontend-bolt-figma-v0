@@ -105,6 +105,7 @@ const TripDraftCalendar: React.FC = () => {
   // Local state for UI control
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [noHotelsMessage, setNoHotelsMessage] = useState<string | null>(null);
   const [fatalError, setFatalError] = useState<Error | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -204,7 +205,13 @@ const TripDraftCalendar: React.FC = () => {
             } catch (hotelError) {
               console.error("Error searching for and saving hotel recommendations:", hotelError);
               // Non-fatal error - don't throw, just log
-              setError(`Could not add hotel recommendation: ${hotelError instanceof Error ? hotelError.message : 'Unknown error'}`);
+              
+              // Check if it's our special "no results" error
+              if (hotelError instanceof Error && hotelError.message === 'NO_RESULTS_FOUND') {
+                setNoHotelsMessage("Oops, we didn't find any matches. Please try with different trip options.");
+              } else {
+                setError(`Could not add hotel recommendation: ${hotelError instanceof Error ? hotelError.message : 'Unknown error'}`);
+              }
             } finally {
               setBuildingTrip(false);
             }
@@ -467,6 +474,11 @@ const TripDraftCalendar: React.FC = () => {
               >
                 Retry
               </button>
+            </div>
+          ) : noHotelsMessage ? (
+            <div className="p-6 text-center">
+              <p className="text-lg text-gray-700 mb-2">{noHotelsMessage}</p>
+              <p className="text-sm text-gray-500">Consider changing your trip dates, destination, budget, etc.</p>
             </div>
           ) : calendarItems.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
