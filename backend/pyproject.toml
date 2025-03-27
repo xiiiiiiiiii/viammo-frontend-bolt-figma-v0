@@ -7,6 +7,8 @@ requires-python = ">=3.11"
 dependencies = [
     "flask",
     "flask_cors",
+    "langchain>=0.3.21",
+    "langchain-openai>=0.3.11",
     "pymongo",
     "python-dotenv",
 ]
