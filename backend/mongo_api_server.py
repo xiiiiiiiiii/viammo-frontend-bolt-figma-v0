@@ -31,6 +31,12 @@ from datetime import datetime
 import json  # Move json import here
 import requests  # Import requests for API calls
 
+from search_utils import (
+    extract_search_trip_data_str, extract_generic_trip_search_keywords_no_llm,
+    generate_trip_hotel_search_keywords_with_llm, create_filters, search_mongo,
+    convert_mongo_trip_advisor_advisor_results_to_cal_item, rerank_hotel_mongo_results
+)
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -73,33 +79,6 @@ db = client[database_name]
 def json_response(data):
     """Convert MongoDB cursor to JSON response"""
     return Response(dumps(data), mimetype='application/json')
-
-# Filter out common stop words and short words
-stop_words = set(['the', 'and', 'or', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'with', 
-                'by', 'about', 'as', 'of', 'from', 'that', 'this', 'it', 'is', 'are', 
-                'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 
-                'did', 'will', 'would', 'should', 'could', 'can', 'may', 'might', 'must',
-                'i', 'you', 'he', 'she', 'we', 'they', 'me', 'him', 'her', 'us', 'them'])
-
-# US state abbreviation to full name mapping
-US_STATES = {
-    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", 
-    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", 
-    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", 
-    "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", 
-    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland", 
-    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", 
-    "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada", 
-    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York", 
-    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma", 
-    "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", 
-    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah", 
-    "VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia", 
-    "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia"
-}
-
-# Create a reverse mapping (full name to abbreviation)
-US_STATE_ABBREVS = {v: k for k, v in US_STATES.items()}
 
 def get_mock_trips():
     """Generate mock trips for testing"""
@@ -477,7 +456,7 @@ def search_hotels_for_trip(trip_id):
     print(f"\nsearch_hotels_for_trip with trip ID: {trip_id}\n\n")
     try:
         # Get query parameters
-        limit = request.args.get('limit', default=10, type=int)
+        limit = request.args.get('limit', default=1, type=int)
         
         # Convert trip_id to ObjectId
         trip_obj_id = ObjectId(trip_id)
@@ -489,327 +468,25 @@ def search_hotels_for_trip(trip_id):
             
             if not trip_data:
                 return json_response({"error": f"No trip found with ID: {trip_id}"}), 404
-            
-            # Get trip title from either 'title' or 'name' field
-            trip_title = trip_data.get('name', '')
-            
-            # Create a variable to store trip data information for later use
-            trip_data_string = f"Found trip: {trip_title}\n"
-            
-            # Extract relevant fields for search
-            destination = trip_data.get('destination', {})
-            # Add destination to trip data string
-            trip_data_string += f"\nTrip data:\n"
-            trip_data_string += f"- destination: {destination}\n"
-            
-            # Get date information from trip
-            start_date = trip_data.get('startDate', 'N/A')
-            end_date = trip_data.get('endDate', 'N/A')
-            
-            # Format dates to remove time portion (if they're valid dates)
-            if start_date != 'N/A' and isinstance(start_date, str) and 'T' in start_date:
-                start_date = start_date.split('T')[0]  # Keep only the date part before 'T'
-            if end_date != 'N/A' and isinstance(end_date, str) and 'T' in end_date:
-                end_date = end_date.split('T')[0]  # Keep only the date part before 'T'
-                
-            trip_data_string += f"- startDate: {start_date}\n"
-            trip_data_string += f"- endDate: {end_date}\n"
-            
-            # Handle destination field that might be a string or an object
-            if isinstance(destination, dict):
-                destination_city = destination.get('city', '')
-                destination_state = destination.get('state', '')
-                destination_country = destination.get('country', 'United States')
-            else:
-                # If destination is a string, try to parse it
-                # Format might be "City, State, Country" or variations
-                destination_parts = str(destination).split(',')
-                
-                if len(destination_parts) >= 1:
-                    # First part is likely the city
-                    destination_city = destination_parts[0].strip()
-                else:
-                    destination_city = ''
-                    
-                if len(destination_parts) >= 2:
-                    # Second part is likely the state/region
-                    destination_state = destination_parts[1].strip()
-                else:
-                    destination_state = ''
-                    
-                if len(destination_parts) >= 3:
-                    # Third part is likely the country
-                    destination_country = destination_parts[2].strip()
-                else:
-                    destination_country = 'United States'
-            
-            # Debug other key fields
-            total_budget = trip_data.get('totalBudget', None)
-            trip_data_string += f"- totalBudget: {total_budget}\n"
-            
-            notes = trip_data.get('notes', '')
-            trip_data_string += f"- notes: {notes[:50]}{'...' if len(str(notes)) > 50 else ''}\n"
-            
-            # Use either 'title' or 'name' field for title
-            title = trip_data.get('name', '')
-            trip_data_string += f"- title: {title}\n"
-            
-            # Get purpose field (if available)
-            purpose = trip_data.get('purpose', '')
-            trip_data_string += f"- purpose: {purpose[:50]}{'...' if len(str(purpose)) > 50 else ''}\n"
+
+            trip_data_str = extract_search_trip_data_str(trip_data)
+            print(f"trip_data_str: {trip_data_str}")
             
             # Extract relevant keywords from trip data
-            search_keywords = []
-            
-            # Add keywords from title
-            if title:
-                # Extract meaningful words, ignore common words like "to", "in", etc.
-                title_words = [word for word in re.findall(r'\b\w+\b', title.lower()) 
-                              if len(word) > 2 and word not in stop_words]
-                search_keywords.extend(title_words)
-            
-            # Add keywords from purpose
-            if purpose:
-                # Extract meaningful words from purpose
-                purpose_words = [word.lower() for word in re.findall(r'\b[a-zA-Z]+\b', str(purpose))]
-                
-                # Filter out stop words and short words (less than 3 characters)
-                meaningful_purpose_words = [word for word in purpose_words if word not in stop_words and len(word) > 2]
-                
-                # Add unique words from purpose
-                for word in meaningful_purpose_words:
-                    if word not in search_keywords:
-                        search_keywords.append(word)
-            
-            # Add keywords from notes
-            if notes:
-                # Extract all meaningful words from notes
-                notes_words = [word.lower() for word in re.findall(r'\b[a-zA-Z]+\b', notes)]
-                
-                # Filter out stop words and short words (less than 3 characters)
-                meaningful_words = [word for word in notes_words if word not in stop_words and len(word) > 2]
-                
-                # Add unique words from notes
-                for word in meaningful_words:
-                    if word not in search_keywords:
-                        search_keywords.append(word)
-            
-            # Process results with LLM if OpenAI API key is available
-            # Check if OpenAI API key is set
             openai_api_key = os.getenv("OPENAI_API_KEY")
-            if openai_api_key:
-                print(f"Generate keywords for BM25 search...")
-                try:
-                    from langchain_openai import ChatOpenAI
-                    from langchain.prompts import ChatPromptTemplate
-                    
-                    llm_model = "gpt-4o-mini"
-                    
-                    # Initialize the LLM with the API key explicitly
-                    llm = ChatOpenAI(model=llm_model, openai_api_key=openai_api_key)
-                    
-                    # Define a prompt template for hotel characteristics
-                    template = """
-                    Based on the following trip information, generate keywords for ideal hotel characteristics that would best match this trip:
-                    
-                    {trip_data}
-                    
-                    Please provide a list of keywords from the following categories to use in a bm25 hotel search:
-                    1. Ideal detailed hotel description
-                    2. 10-15 amenity keywords that would be important for this trip
-                    3. 3-5 trip type keywords that match this traveler (e.g., "family", "business", "couples", "solo travel")
-                    4. 2-3 hotel style keywords that would be appropriate (e.g., "Luxury", "Modern", "Boutique", "Budget")
-                    
-                    Format your response as a simple list of lowercase keywords separated by spaces.
-                    
-                    Return only the list of keywords, no bullets, no numbers, no other text.
-                    """
-                    
-                    prompt = ChatPromptTemplate.from_template(template)
-                    
-                    # Generate the response
-                    chain = prompt | llm
-                    response = chain.invoke({"trip_data": trip_data_string})
+            search_keywords = generate_trip_hotel_search_keywords_with_llm(trip_data_str, openai_api_key)
+            print(f"search_keywords: {search_keywords}")
 
-                    # Extract keywords from the response
-                    response_content = response.content
-                    print(f"Response content: {response_content}")
-                    if not response_content or len(response.content.split()) == 0:
-                        print(f"LLM did not return a response")
-                    else:
-                        generated_keywords = set([word.lower() for word in response.content.split()])
-                    print(f"Extracted keywords: \n{generated_keywords}")
-                        
-                    # Add to search keywords if not already present.
-                    for word in generated_keywords:
-                        if word not in search_keywords:
-                            search_keywords.append(word)
-                    
-                    print(f"\nAdded {len(generated_keywords)} generated keywords to search")
-                except ImportError:
-                    print("Warning: LangChain or OpenAI packages not installed. Skipping keyword generation.")
-                    print("To install required packages: pip install langchain langchain-openai")
-            
-            # Use totalBudget directly as price_level (already in $ format)
-            price_level = trip_data.get('totalBudget', "")
+            # Build search query with available fields
+            query_conditions = create_filters(trip_data)
+            print(f"query_conditions: {query_conditions}")
             
             # Search for hotels
             hotels_collection = db["tripadvisor-hotel_review"]
-            
-            # Build search query with available fields
-            query_conditions = []
-            
-            # Add location filter based on address_obj
-            if destination_city:
-                city_condition = {"address_obj.city": destination_city}
-                query_conditions.append(city_condition)
-            
-            # Handle state matching with abbreviations and full names
-            if destination_state:
-                state_value = destination_state.strip()
-                state_conditions = []
-                
-                # Case 1: Input is a 2-letter state code (e.g., "CO")
-                if len(state_value) == 2 and state_value.upper() in US_STATES:
-                    state_abbrev = state_value.upper()
-                    full_state_name = US_STATES[state_abbrev]
-                    
-                    # Match both abbreviation and full name
-                    state_conditions.append({"address_obj.state": state_abbrev})
-                    state_conditions.append({"address_obj.state": full_state_name})
-                    
-                # Case 2: Input is a full state name (e.g., "Colorado")
-                elif state_value.title() in US_STATE_ABBREVS:
-                    full_state_name = state_value.title()
-                    state_abbrev = US_STATE_ABBREVS[full_state_name]
-                    
-                    # Match both abbreviation and full name
-                    state_conditions.append({"address_obj.state": state_abbrev})
-                    state_conditions.append({"address_obj.state": full_state_name})
-                    
-                # Case 3: Input doesn't match known states, use as-is
-                else:
-                    state_conditions.append({"address_obj.state": state_value})
-                
-                # Add OR condition to match any state format
-                if len(state_conditions) > 1:
-                    query_conditions.append({"$or": state_conditions})
-                else:
-                    query_conditions.append(state_conditions[0])
-            
-            # Country matching (United States vs USA)
-            if destination_country:
-                country_value = destination_country.strip()
-                country_conditions = []
-                
-                # Handle common variations of United States
-                if country_value.upper() in ["USA", "U.S.A.", "U.S.", "UNITED STATES", "UNITED STATES OF AMERICA"]:
-                    country_conditions.append({"address_obj.country": "United States"})
-                    country_conditions.append({"address_obj.country": "USA"})
-                    country_conditions.append({"address_obj.country": "U.S.A."})
-                    country_conditions.append({"address_obj.country": "U.S."})
-                # Handle variations of United Kingdom
-                elif country_value.upper() in ["UK", "U.K.", "UNITED KINGDOM", "GREAT BRITAIN"]:
-                    country_conditions.append({"address_obj.country": "United Kingdom"})
-                    country_conditions.append({"address_obj.country": "UK"})
-                    country_conditions.append({"address_obj.country": "U.K."})
-                    country_conditions.append({"address_obj.country": "Great Britain"})
-                else:
-                    # Use as-is for other countries
-                    country_conditions.append({"address_obj.country": country_value})
-                
-                # Add OR condition to match any country format
-                if len(country_conditions) > 1:
-                    query_conditions.append({"$or": country_conditions})
-                else:
-                    query_conditions.append(country_conditions[0])
-            
-            # Add price level filter if available
-            if price_level:
-                # Create an OR query for price levels including one $ below and one $ above
-                price_conditions = []
-                
-                # Add the exact price level
-                price_conditions.append({"price_level": price_level})
-                
-                # Determine price level by counting $ symbols
-                if price_level == "$":
-                    # Only add one level above for $ (can't go below $)
-                    price_conditions.append({"price_level": "$$"})
-                elif price_level == "$$":
-                    # Add one level below and one level above
-                    price_conditions.append({"price_level": "$"})
-                    price_conditions.append({"price_level": "$$$"})
-                elif price_level == "$$$":
-                    # Add one level below and one level above
-                    price_conditions.append({"price_level": "$$"})
-                    price_conditions.append({"price_level": "$$$$"})
-                elif price_level == "$$$$":
-                    # Only add one level below for $$$$ (can't go above $$$$)
-                    price_conditions.append({"price_level": "$$$"})
-                
-                # Add OR condition to match any price level in the range
-                if len(price_conditions) > 1:
-                    query_conditions.append({"$or": price_conditions})
-                else:
-                    query_conditions.append(price_conditions[0])
-            
-            # Ensure only hotels with descriptions are returned
-            query_conditions.append({"description": {"$exists": True, "$ne": ""}})
-            
-            # Check if the collection has a text index
-            indexes = hotels_collection.list_indexes()
-            text_index_exists = False
-            for index in indexes:
-                if index.get('name') == 'text_search_index':
-                    text_index_exists = True
-                    break
-                    
-            if not text_index_exists:
-                # Create text index for full-text search
-                hotels_collection.create_index([
-                    ("name", "text"), 
-                    ("description", "text"),
-                    ("styles", "text"),
-                    ("trip_types.name", "text"),
-                    ("amenities", "text"),
-                    ("brand", "text")
-                ], name="text_search_index")
-            
+
             # Build combined search including full-text search
-            if search_keywords:
-                # Full-text search with $text (uses BM25 for ranking)
-                # Join keywords into a single space-separated string for $text operator
-                text_search_string = " ".join(search_keywords)
-                
-                # Create a text search query (uses BM25 TF-IDF scoring)
-                text_query = {
-                    "$text": {
-                        "$search": text_search_string,
-                        "$caseSensitive": False,
-                        "$diacriticSensitive": False
-                    }
-                }
-                query_conditions.append(text_query)
-                
-                # Project the text score in results
-                projection = {"score": {"$meta": "textScore"}}
-                
-                # Sort by the text score (higher score = better relevancy)
-                text_sort = [("score", {"$meta": "textScore"})]
-            
-            # Combine with AND logic for required conditions
-            final_query = {"$and": query_conditions} if len(query_conditions) > 1 else query_conditions[0] if query_conditions else {}
-            
-            # Find matched hotels
-            mongo_search_limit = max(10, limit)
-            # If using full-text search, use the textScore for sorting
-            if search_keywords and text_search_string:
-                # Get the limited results with proper sorting
-                search_results = list(hotels_collection.find(final_query, projection).sort(text_sort).limit(mongo_search_limit))
-            else:
-                # Just sort by rating if no text search
-                search_results = list(hotels_collection.find(final_query).sort([("rating", -1)]).limit(mongo_search_limit))
+            mongo_search_limit = max(10, limit) # Get min 10 results to make sure reranking has enough results.
+            search_results = search_mongo(hotels_collection, query_conditions, search_keywords, limit=mongo_search_limit)
             
             # Process results
             if search_results:
@@ -819,181 +496,14 @@ def search_hotels_for_trip(trip_id):
                 # Convert MongoDB documents to displayable JSON
                 parsed_results = json.loads(dumps(search_results))
                 
-                # Rerank results using OpenAI if API key is available
-                if openai_api_key:
-                    print(f"Starting LLM reranking with model gpt-4o-mini...")
-                    try:
-                        # Initialize the LLM if it wasn't already done
-                        if 'llm' not in locals():
-                            from langchain_openai import ChatOpenAI
-                            from langchain.prompts import ChatPromptTemplate
-                            
-                            llm_model = "gpt-4o-mini"
-                            llm = ChatOpenAI(model=llm_model, openai_api_key=openai_api_key)
-                            print(f"Successfully initialized LLM model: {llm_model}")
-                        
-                        # Create a prompt template for hotel characteristics
-                        rerank_template = """
-                        Based on the following trip information and list of hotels, select the single best hotel that matches the trip requirements.
-                        Take into account all of the trip information below and how the hotel matches the trip requirements.
-                        
-                        Trip Information:
-                        {trip_data}
-                        
-                        Hotels:
-                        {hotels_data}
-                        
-                        Return your response as a JSON object with two fields:
-                        1. "hotel_name": The exact name of the best matching hotel
-                        2. "explanation": A short max 7 word quirky explanation of why this hotel was selected for this trip
-                        
-                        Format your response as valid JSON only. Do not include any explanations outside the JSON, do not include ```json or ```.
-                        Example: {{"hotel_name": "Example Hotel", "explanation": "This hotel offers valet ski-in/ski-out access."}}
-                        """
-                        
-                        prompt = ChatPromptTemplate.from_template(rerank_template)
-                        print("Created prompt template for hotel ranking")
-                        
-                        # Prepare all hotel data for the prompt
-                        hotels_data = []
-                        hotel_names = []  # Keep track of hotel names for debugging
-                        for i, hotel in enumerate(parsed_results, 1):
-                            hotel_name = hotel.get('name', 'Unknown')
-                            hotel_names.append(hotel_name)
-                            hotel_info = f"""
-                            Hotel {i}:
-                            Name: {hotel_name}
-                            Rating: {hotel.get('rating', 'N/A')}/5
-                            Price Level: {hotel.get('price_level', 'N/A')}
-                            Styles: {', '.join(hotel.get('styles', []))}
-                            Trip Types: {', '.join([t.get('name', t) if isinstance(t, dict) else t for t in hotel.get('trip_types', [])])}
-                            Amenities: {', '.join([a.get('name', a) if isinstance(a, dict) else a for a in hotel.get('amenities', [])])}
-                            Description: {hotel.get('description', '')[:200]}
-                            """
-                            hotels_data.append(hotel_info)
-                        
-                        print(f"Prepared {len(hotels_data)} hotels for ranking")
-                        print(f"Hotel names: {hotel_names}")
-                        
-                        # Get the best hotel from LLM
-                        chain = prompt | llm
-                        print("Calling LLM API for hotel ranking...")
-                        response = chain.invoke({
-                            "trip_data": trip_data_string,
-                            "hotels_data": "\n".join(hotels_data)
-                        })
-                        print("LLM API call completed")
-                        
-                        try:
-                            # Parse the JSON response
-                            response_content = response.content.strip()
-                            print(f"\nLLM Response: {response_content}")
-                            response_data = json.loads(response_content)
-                            best_hotel_name = response_data.get("hotel_name", "")
-                            explanation = response_data.get("explanation", "")
-                            print(f"Best hotel name: {best_hotel_name}")
-                            print(f"Explanation: {explanation}")
-                            
-                            # Find the selected hotel and move it to the top
-                            hotel_found = False
-                            for i, hotel in enumerate(parsed_results):
-                                if hotel.get('name') == best_hotel_name:
-                                    print(f"Found matching hotel at index {i}")
-                                    hotel_found = True
-                                    # Move the selected hotel to the top
-                                    selected_hotel = parsed_results.pop(i)
-                                    # Store the explanation at the top level where we can access it later
-                                    selected_hotel["llm_explanation"] = explanation  # Add the explanation
-                                    print(f"Added explanation to hotel: {explanation}")
-                                    parsed_results.insert(0, selected_hotel)
-                                    break
-                        
-                            if not hotel_found:
-                                print(f"WARNING: Could not find hotel with name '{best_hotel_name}' in results")
-                                print(f"Available hotel names: {hotel_names}")
-                        except (json.JSONDecodeError, KeyError) as e:
-                            # Fallback to simpler parsing if JSON parsing fails
-                            print(f"Error parsing LLM response as JSON: {e}")
-                            response_content = response.content.strip()
-                            best_hotel_name = response_content
-                            explanation = ""
-                            
-                            # Find the selected hotel and move it to the top (without explanation)
-                            for i, hotel in enumerate(parsed_results):
-                                if hotel.get('name') == best_hotel_name:
-                                    selected_hotel = parsed_results.pop(i)
-                                    parsed_results.insert(0, selected_hotel)
-                                    break
-                    except Exception as e:
-                        # Catch and log all other exceptions
-                        print(f"ERROR in LLM reranking: {str(e)}")
-                        import traceback
-                        print(traceback.format_exc())
+                # Rerank results with llm
+                reranked_results = rerank_hotel_mongo_results(parsed_results, trip_data_str, openai_api_key)
                 
                 # Create formatted results
-                formatted_results = []
-                for i, hotel in enumerate(parsed_results):
-                    hotel_id = hotel.get('location_id', 'N/A')
-                    name = hotel.get('name', 'Unnamed Hotel')
-                    rating = hotel.get('rating', 'N/A')
-                    price = hotel.get('price_level', 'N/A')
-                    
-                    # Get main photo URL if available
-                    main_photo_url = None
-                    if 'photos' in hotel and len(hotel['photos']) > 0:
-                        first_photo = hotel['photos'][0]
-                        if 'images' in first_photo and 'original' in first_photo['images']:
-                            main_photo_url = first_photo['images']['original'].get('url', None)
-                    
-                    # Get address data
-                    address_obj = hotel.get('address_obj', {})
-                    address_string = address_obj.get('address_string', '') if address_obj else ''
-                    
-                    # Get coordinates
-                    latitude = hotel.get('latitude', None)
-                    longitude = hotel.get('longitude', None)
-                    
-                    # Get description
-                    description = hotel.get('description', '')
-                    
-                    # Create formatted hotel object
-                    today_date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z")
-                    
-                    # Determine the notes field content
-                    # If this is the top hotel and it has an LLM explanation, use that
-                    # Otherwise use the rating
-                    if i == 0 and "llm_explanation" in hotel:
-                        notes = hotel["llm_explanation"]
-                        print(f"Using LLM explanation for notes: {notes}")
-                    else:
-                        notes = f"Rating: {rating}/5"
-                        if i == 0:
-                            print(f"Hotel at index 0 has no llm_explanation. Keys: {list(hotel.keys())}")
-                    
-                    formatted_hotel = {
-                        "trip_id": str(trip_obj_id),
-                        "type": "accommodation",
-                        "name": f"Stay at {name}",
-                        "date": start_date,
-                        "endDate": end_date,
-                        "location": {
-                            "name": name,
-                            "address": address_string or "",
-                            "coordinates": {
-                                "lat": float(latitude) if latitude else 0,
-                                "lng": float(longitude) if longitude else 0
-                            }
-                        },
-                        "notes": notes,
-                        "status": "draft",
-                        "createdAt": today_date,
-                        "updatedAt": today_date,
-                        "description": description,
-                        "main_media": main_photo_url or "",
-                        "budget": price
-                    }
-                    
-                    formatted_results.append(formatted_hotel)
+                start_date = trip_data.get('startDate', None)
+                end_date = trip_data.get('endDate', None)
+                cal_el_type = 'accommodation'
+                formatted_results = convert_mongo_trip_advisor_advisor_results_to_cal_item(reranked_results, trip_obj_id, start_date, end_date, cal_el_type)
                 
                 # Return the results limited to the requested count
                 return json_response(formatted_results[:limit])
