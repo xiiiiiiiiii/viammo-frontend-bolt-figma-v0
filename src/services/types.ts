@@ -3,13 +3,20 @@ export interface MongoId {
   $oid?: string; // MongoDB ObjectId format from API responses
 }
 
+// Destination structure
+export interface DestinationData {
+  city: string;
+  state: string;
+  country: string;
+}
+
 // MongoDB Trip Collection Interface
 export interface Trip {
   _id: string | MongoId;
   name: string;
   startDate: string;
   endDate: string;
-  destination: string;
+  destination: string | DestinationData;
   numberOfGuests: number;
   status?: string;
   totalBudget?: string | number;

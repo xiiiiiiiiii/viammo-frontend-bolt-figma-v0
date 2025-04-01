@@ -167,7 +167,12 @@ export const Trips = (): JSX.Element => {
                           <span className="text-sm mr-3">{formatDate(trip.startDate)}-{formatDate(trip.endDate)}</span>
 
                           <MapPin className="h-4 w-4 mr-1" />
-                          <span className="text-sm mr-3">{trip.destination}</span>
+                          <span className="text-sm mr-3">
+                            {typeof trip.destination === 'string' 
+                              ? trip.destination 
+                              : `${trip.destination.city}${trip.destination.state ? `, ${trip.destination.state}` : ''}${trip.destination.country ? `, ${trip.destination.country}` : ''}`
+                            }
+                          </span>
 
                           <Users className="h-4 w-4 mr-1" />
                           <span className="text-sm">{trip.numberOfGuests || 3} guests</span>

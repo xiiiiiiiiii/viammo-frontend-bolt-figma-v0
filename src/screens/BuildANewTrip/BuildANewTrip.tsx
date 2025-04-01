@@ -68,29 +68,32 @@ const theme = createTheme({
   },
 });
 
-// City options for destination selection
-const cityOptions = [
-  "Aspen, CO, USA",
-  "Paris, France",
-  "London, UK",
-  "New York, NY, USA",
-  "Tokyo, Japan",
-  "Bali, Indonesia",
-  "Barcelona, Spain",
-  "Rome, Italy",
-  "Sydney, Australia",
-  "Amsterdam, Netherlands",
-  "Bangkok, Thailand",
-  "Dubai, UAE",
-  "Singapore",
-  "Hong Kong",
-  "Los Angeles, CA, USA",
-  "San Francisco, CA, USA",
-  "Miami, FL, USA",
-  "Las Vegas, NV, USA",
-  "Honolulu, HI, USA",
-  "Cancun, Mexico",
-];
+// City options for destination selection 
+const cityOptionsDict: Record<string, {city: string, state: string, country: string}> = {
+  "Aspen, CO, USA": { city: "Aspen", state: "CO", country: "USA" },
+  "Paris, France": { city: "Paris", state: "", country: "France" },
+  "London, UK": { city: "London", state: "", country: "UK" },
+  "New York, NY, USA": { city: "New York", state: "NY", country: "USA" },
+  "Tokyo, Japan": { city: "Tokyo", state: "", country: "Japan" },
+  "Bali, Indonesia": { city: "Bali", state: "", country: "Indonesia" },
+  "Barcelona, Spain": { city: "Barcelona", state: "", country: "Spain" },
+  "Rome, Italy": { city: "Rome", state: "", country: "Italy" },
+  "Sydney, Australia": { city: "Sydney", state: "", country: "Australia" },
+  "Amsterdam, Netherlands": { city: "Amsterdam", state: "", country: "Netherlands" },
+  "Bangkok, Thailand": { city: "Bangkok", state: "", country: "Thailand" },
+  "Dubai, UAE": { city: "Dubai", state: "", country: "UAE" },
+  "Singapore": { city: "Singapore", state: "", country: "Singapore" },
+  "Hong Kong": { city: "Hong Kong", state: "", country: "China" },
+  "Los Angeles, CA, USA": { city: "Los Angeles", state: "CA", country: "USA" },
+  "San Francisco, CA, USA": { city: "San Francisco", state: "CA", country: "USA" },
+  "Miami, FL, USA": { city: "Miami", state: "FL", country: "USA" },
+  "Las Vegas, NV, USA": { city: "Las Vegas", state: "NV", country: "USA" },
+  "Honolulu, HI, USA": { city: "Honolulu", state: "HI", country: "USA" },
+  "Cancun, Mexico": { city: "Cancun", state: "", country: "Mexico" },
+};
+
+// Keep the original array for compatibility with existing code
+const cityOptions = Object.keys(cityOptionsDict);
 
 // Generate guest options from 1 to 20
 const guestOptions = Array.from({ length: 20 }, (_, i) => i + 1);
@@ -141,6 +144,7 @@ export const BuildANewTrip = (): JSX.Element => {
   // State for destination selection
   const [destinationAnchorEl, setDestinationAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedDestination, setSelectedDestination] = useState<string | null>(null);
+  const [selectedDestinationData, setSelectedDestinationData] = useState<{city: string, state: string, country: string} | null>(null);
   const [searchInput, setSearchInput] = useState<string>('');
   const [filteredCities, setFilteredCities] = useState<string[]>(cityOptions);
 
@@ -410,11 +414,10 @@ export const BuildANewTrip = (): JSX.Element => {
         name: tripName || `Trip to ${selectedDestination}`,
         startDate: startDateStr,
         endDate: endDateStr,
-        destination: selectedDestination,
+        destination: selectedDestinationData || { city: "", state: "", country: "" },
         numberOfGuests: selectedGuests || 1,
         status: 'draft',
         notes: tripDetails || "",
-        // Store only the dollar signs for budget
         totalBudget: formatBudgetToSymbols(selectedBudget),
         purpose: selectedPurpose || "Leisure",
         created_at: new Date().toISOString(),
@@ -506,6 +509,7 @@ export const BuildANewTrip = (): JSX.Element => {
 
   const handleDestinationSelect = (destination: string) => {
     setSelectedDestination(destination);
+    setSelectedDestinationData(cityOptionsDict[destination]);
     handleDestinationMenuClose();
   };
 
@@ -929,7 +933,6 @@ export const BuildANewTrip = (): JSX.Element => {
                 boxShadow: '0px 5px 15px rgba(0, 0, 0, 0.1)',
                 marginTop: '8px',
                 maxHeight: '300px',
-                overflow: 'auto'
               },
             }}
           >

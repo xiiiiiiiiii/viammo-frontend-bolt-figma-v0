@@ -454,7 +454,12 @@ const TripDraftCalendar: React.FC = () => {
           {currentTrip?.destination && (
             <div className="flex items-center gap-1.5">
               <MapPinIcon className="h-4 w-4 text-emerald-500" />
-              <span className="text-emerald-500">{currentTrip.destination}</span>
+              <span className="text-emerald-500">
+                {typeof currentTrip.destination === 'string' 
+                  ? currentTrip.destination 
+                  : `${currentTrip.destination.city}${currentTrip.destination.state ? `, ${currentTrip.destination.state}` : ''}${currentTrip.destination.country ? `, ${currentTrip.destination.country}` : ''}`
+                }
+              </span>
             </div>
           )}
           
