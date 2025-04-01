@@ -34,7 +34,8 @@ import requests  # Import requests for API calls
 from search_utils import (
     extract_search_trip_data_str, extract_generic_trip_search_keywords_no_llm,
     generate_trip_hotel_search_keywords_with_llm, create_filters, search_mongo,
-    convert_mongo_trip_advisor_advisor_results_to_cal_item, rerank_hotel_mongo_results
+    convert_mongo_trip_advisor_advisor_results_to_cal_item, rerank_hotel_mongo_results,
+    DEFAULT_MIN_UNDERLYING_MONGO_RESULTS
 )
 
 # Load environment variables from .env file
@@ -485,7 +486,7 @@ def search_hotels_for_trip(trip_id):
             hotels_collection = db["tripadvisor-hotel_review"]
 
             # Build combined search including full-text search
-            mongo_search_limit = max(10, limit) # Get min 10 results to make sure reranking has enough results.
+            mongo_search_limit = max(DEFAULT_MIN_UNDERLYING_MONGO_RESULTS, limit) # Get min 20 results to make sure reranking has enough results.
             search_results = search_mongo(hotels_collection, query_conditions, search_keywords, limit=mongo_search_limit)
             
             # Process results

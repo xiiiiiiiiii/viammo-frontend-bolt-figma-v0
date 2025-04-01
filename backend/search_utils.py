@@ -24,6 +24,8 @@ from datetime import datetime
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 
+DEFAULT_MIN_UNDERLYING_MONGO_RESULTS = 20
+
 # Filter out common stop words and short words
 stop_words = set(['the', 'and', 'or', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'with', 
                 'by', 'about', 'as', 'of', 'from', 'that', 'this', 'it', 'is', 'are', 
@@ -821,7 +823,7 @@ def main():
         print(f"LLM search keywords: {llm_search_keywords}\n")
         search_keywords = llm_search_keywords # (generic_search_keywords | llm_search_keywords)
         print(f"Search keywords: {search_keywords}\n")
-        parsed_results = search_mongo(hotels_collection, query_conditions, search_keywords, limit=5)
+        parsed_results = search_mongo(hotels_collection, query_conditions, search_keywords, limit=DEFAULT_MIN_UNDERLYING_MONGO_RESULTS)
         print(f"Parsed results:")
         for r in parsed_results:
             print(f"{r['score']}: {r['name']}")
@@ -869,7 +871,7 @@ def main():
         print(f"LLM search keywords: {llm_search_keywords}\n")
         search_keywords = llm_search_keywords # (generic_search_keywords | llm_search_keywords)
         print(f"Search keywords: {search_keywords}\n")
-        parsed_results = search_mongo(restaurants_collection, query_conditions, search_keywords, limit=5)
+        parsed_results = search_mongo(restaurants_collection, query_conditions, search_keywords, limit=DEFAULT_MIN_UNDERLYING_MONGO_RESULTS)
         print(f"Parsed results:")
         for r in parsed_results:
             print(f"{r['score']}: {r['name']}")
