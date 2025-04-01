@@ -143,7 +143,9 @@ def extract_generic_trip_search_keywords_no_llm(trip_data) -> str:
     return set(search_keywords)
 
 def generate_trip_hotel_search_keywords_with_llm(trip_data_string, openai_api_key) -> str:
-    # Generate keywords for BM25 search.
+    """
+    Generate hotel listing keywords to search trip advisor hotel listings stores in monfo with bm25.
+    """
 
     if not openai_api_key:
         print("Warning: OPENAI_API_KEY environment variable not set. Skipping LLM keyword extraction.")
@@ -164,8 +166,10 @@ def generate_trip_hotel_search_keywords_with_llm(trip_data_string, openai_api_ke
         Please provide a list of keywords from the following categories to use in a bm25 hotel search:
         1. Ideal detailed hotel description
         2. 10-15 amenity keywords that would be important for this trip
-        3. 3-5 trip type keywords that match this traveler (e.g., "family", "business", "couples", "solo travel")
-        4. 2-3 hotel style keywords that would be appropriate (e.g., "Luxury", "Modern", "Boutique", "Budget")
+        3. 3-5 trip type keywords that match this traveler (e.g., "family", "business", "couples", "solo travel", etc.)
+        4. 2-3 hotel style keywords that would be appropriate (e.g., "Luxury", "Modern", "Boutique", "Budget", etc.)
+        5. 2-3 hotel brand keywords that would be appropriate (e.g., "Relais & Châteaux", "St. Regis", "W Hotels", etc.)
+        6. 2-3 hotel award keywords that would be appropriate (e.g., "Travelers Choice", etc.)
         
         Format your response as a simple list of lowercase keywords separated by spaces.
         
@@ -190,8 +194,66 @@ def generate_trip_hotel_search_keywords_with_llm(trip_data_string, openai_api_ke
     except ImportError:
         print("Warning: LangChain or OpenAI packages not installed. Skipping keyword generation.")
         print("To install required packages: pip install langchain langchain-openai")
+
+def generate_trip_restaurant_search_keywords_with_llm(trip_data_string, openai_api_key) -> str:
+    """
+    Generate restaurant listing keywords to search trip advisor restaurant listings stores in monfo with bm25.
+    """
+
+    if not openai_api_key:
+        print("Warning: OPENAI_API_KEY environment variable not set. Skipping LLM keyword extraction.")
+        return None
+    
+    try:        
+        llm_model = "gpt-4o-mini"
+        
+        # Initialize the LLM with the API key explicitly
+        llm = ChatOpenAI(model=llm_model, openai_api_key=openai_api_key)
+        
+        # Define a prompt template for hotel characteristics
+        template = """
+        Based on the following trip information, generate keywords for ideal restaurant characteristics that would best match this trip:
+        
+        {trip_data_string}
+        
+        Please provide a list of keywords from the following categories to use in a bm25 restaurant search:
+        1. Ideal detailed restaurant description
+        2. 10-15 features keywords that would be important for this trip (e.g., "Outdoor Seating", "Full Bar", "Parking Available")
+        3. 3-5 trip type keywords that match this traveler (e.g., "family", "business", "couples", "solo travel")
+        4. 2-3 restaurant cuisine keywords that would be appropriate (e.g., "French", "Italian", "Chinese", "Seafood")
+        5. 2-3 restaurant award keywords that would be appropriate (e.g., "Michelin", "Gault Millau")
+        
+        Format your response as a simple list of lowercase keywords separated by spaces.
+        
+        Return only the list of keywords, no bullets, no numbers, no other text.
+        """
+        
+        prompt = ChatPromptTemplate.from_template(template)
+        
+        # Generate the response
+        chain = prompt | llm
+        response = chain.invoke({"trip_data_string": trip_data_string})
+
+        # Extract keywords from the response
+        response_content = response.content
+        if not response_content or len(response.content.split()) == 0:
+            print(f"LLM did not return a response to generate restaurant search keywords")
+            return None
+        else:
+            generated_keywords = set([word.lower() for word in response.content.split()])
+            
+        return generated_keywords
+    except ImportError:
+        print("Warning: LangChain or OpenAI packages not installed. Skipping keyword generation.")
+        print("To install required packages: pip install langchain langchain-openai")
     
 def create_filters(trip_data) -> str:
+    """
+    Creates following basic mongo filters:
+    1. geo filters based on trip destination
+    2. budget filter based on trip budget
+    3. only records with a non empty description fields (otherwise generally bad result and hard to sell to userx)
+    """
     if not trip_data:
         print(f"Can't extract trip data string from None trip data.")
         return None
@@ -303,7 +365,7 @@ def create_filters(trip_data) -> str:
     
     return query_conditions
 
-def create_trip_advisor_hotel_search_index():
+def create_trip_advisor_hotel_search_index(hotels_collection):
     # Check if the collection has a text index
     indexes = hotels_collection.list_indexes()
     text_index_exists = False
@@ -319,8 +381,29 @@ def create_trip_advisor_hotel_search_index():
             ("description", "text"),
             ("styles", "text"),
             ("trip_types.name", "text"),
+            ("awards.display_name", "text"),
             ("amenities", "text"),
-            ("brand", "text")
+            ("brand", "text"),
+        ], name="text_search_index")
+
+def create_trip_advisor_restaurant_search_index(restaurants_collection):
+    # Check if the collection has a text index
+    indexes = restaurants_collection.list_indexes()
+    text_index_exists = False
+    for index in indexes:
+        if index.get('name') == 'text_search_index':
+            text_index_exists = True
+            break
+            
+    if not text_index_exists:
+        # Create text index for full-text search
+        restaurants_collection.create_index([
+            ("name", "text"), 
+            ("description", "text"),
+            ("trip_types.name", "text"),
+            ("awards.display_name", "text"),
+            ("features", "text"),
+            ("cuisine.name", "text")
         ], name="text_search_index")
 
 def convert_mongo_trip_advisor_advisor_results_to_cal_item(parsed_results, trip_obj_id, start_date, end_date, cal_el_type):
@@ -358,6 +441,8 @@ def convert_mongo_trip_advisor_advisor_results_to_cal_item(parsed_results, trip_
         
         if cal_el_type == "accommodation":
             name = f"Stay at {name}"
+        elif cal_el_type == "restaurant":
+            name = f"Eat at {name}"
         else:
             name = name
         
@@ -547,6 +632,127 @@ def rerank_hotel_mongo_results(parsed_results, trip_data_str, openai_api_key):
         print(f"ERROR in LLM reranking: {str(e)}")
         import traceback
         print(traceback.format_exc())
+
+
+def rerank_restaurant_mongo_results(parsed_results, trip_data_str, openai_api_key, num_recs=4):
+    # Rerank restaurant results using OpenAI if API key is available
+
+    if not openai_api_key:
+        print("No OpenAI API key provided. Skipping LLM reranking.")
+        return parsed_results
+
+    try:
+        llm_model = "gpt-4o-mini"
+        llm = ChatOpenAI(model=llm_model, openai_api_key=openai_api_key)
+        print(f"Successfully initialized LLM model: {llm_model}")
+        
+        # Create a prompt template for restaurant characteristics
+        rerank_template = """
+        Based on the following trip information and list of restaurants, select the {num_recs} best restaurants that match the trip requirements.
+        Take into account all of the trip information below and how the restaurant matches the trip requirements. Please make sure to
+        only provide a restaurant with a different price level if there are no other restaurants with the desired price level available.
+        
+        Trip Information:
+        {trip_data_str}
+        
+        Restaurants:
+        {restaurants_data}
+        
+        Return your response as a JSON list of objects where each object has two fields:
+        1. "restaurant_name": The exact name of the best matching restaurant
+        2. "explanation": A short max 7 word quirky explanation of why this restaurant was selected for this trip
+        
+        Format your response as valid JSON only. Do not include any explanations outside the JSON, do not include ```json or ```.
+        Example: [[
+            {{"restaurant_name": "Quick Bite", "explanation": "Close to the charlifts."}},
+            {{"restaurant_name": "Shushirimi", "explanation": "Offers sushi."}},
+            {{"restaurant_name": "Diamonds on the Mountain", "explanation": "Blacktie meals in the mountains."}},
+            {{"restaurant_name": "Fondue High", "explanation": "Hearty meals in the mountains."}}
+        ]]
+        """
+        
+        prompt = ChatPromptTemplate.from_template(rerank_template)
+        
+        # Prepare all restaurant data for the prompt
+        restaurants_data = []
+        restaurant_names = []  # Keep track of restaurant names for debugging
+        for i, restaurant in enumerate(parsed_results, 1):
+            restaurant_name = restaurant.get('name', 'Unknown')
+            restaurant_names.append(restaurant_name)
+            restaurant_info = f"""
+            Restaurant {i}:
+            Name: {restaurant_name}
+            Rating: {restaurant.get('rating', 'N/A')}/5
+            Price Level: {restaurant.get('price_level', 'N/A')}
+            Cuisine: {', '.join([c.get('name', c) if isinstance(c, dict) else c for c in restaurant.get('cuisine', [])])}
+            Trip Types: {', '.join([t.get('name', t) if isinstance(t, dict) else t for t in restaurant.get('trip_types', [])])}
+            Features: {', '.join([a.get('name', a) if isinstance(a, dict) else a for a in restaurant.get('features', [])])}
+            Description: {restaurant.get('description', '')[:200]}
+            """
+            restaurants_data.append(restaurant_info)
+
+        print(f"Prepared {len(restaurants_data)} restaurants for llm reranking")
+        
+        # Get the best hotel from LLM
+        chain = prompt | llm
+        print("Calling LLM API for hotel ranking...")
+        response = chain.invoke({
+            "num_recs": num_recs,
+            "trip_data_str": trip_data_str,
+            "restaurants_data": "\n".join(restaurants_data)
+        })
+        print("LLM API call completed")
+        
+        try:
+            # Parse the JSON response
+            response_content = response.content.strip()
+            print(f"\nLLM Response: {response_content}")
+            response_data = json.loads(response_content)
+            best_restaurants = {
+                r.get("restaurant_name", ""): r.get("explanation", "")
+                for r in response_data
+            }
+            print(f"Best restaurants: {best_restaurants}")
+            
+            # Find the selected restaurant and move it to the top.
+            restaurants_found = 0
+            for i, restaurant in enumerate(parsed_results):
+                if restaurant.get('name') in best_restaurants:
+                    print(f"Found matching restaurant at index {i}")
+                    restaurants_found += 1
+                    # Move the selected restaurant to the top
+                    selected_restaurant = parsed_results.pop(i)
+                    # Store the explanation at the top level where we can access it later
+                    selected_restaurant["llm_explanation"] = best_restaurants[restaurant.get('name', '')]  # Add the explanation
+                    print(f"Added llm explanation to restaurant: {selected_restaurant['llm_explanation']}")
+                    parsed_results.insert(0, selected_restaurant)
+                if restaurants_found >= num_recs:
+                    break
+        
+            if restaurants_found < num_recs:
+                print(f"WARNING: Could not find all recommended restaurants {best_restaurants}")
+            
+            return parsed_results
+    
+        except (json.JSONDecodeError, KeyError) as e:
+            # Fallback to simpler parsing if JSON parsing fails
+            print(f"Error parsing LLM response as JSON: {e}")
+            response_content = response.content.strip()
+            best_restaurant_name = response_content
+            explanation = ""
+            
+            # Find the selected restaurant and move it to the top (without explanation)
+            for i, restaurant in enumerate(parsed_results):
+                if restaurant.get('name') == best_restaurant_name:
+                    selected_restaurant = parsed_results.pop(i)
+                    parsed_results.insert(0, selected_restaurant)
+                    break
+    
+    except Exception as e:
+        # Catch and log all other exceptions
+        print(f"ERROR in LLM reranking: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
     
 
 def main():
@@ -592,6 +798,14 @@ def main():
     elif args.type == 'create_filters':
         trip_data = load_trip(args.trip_id, db)
         print(create_filters(trip_data))
+    
+    elif args.type == 'create_hotel_search_index':
+        hotels_collection = db["tripadvisor-hotel_review"]
+        create_trip_advisor_hotel_search_index(hotels_collection)
+
+    elif args.type == 'create_restaurant_search_index':
+        restaurants_collection = db["tripadvisor-restaurant_review"]
+        create_trip_advisor_restaurant_search_index(restaurants_collection)
 
     elif args.type == 'search_mongo_hotels':
         trip_data = load_trip(args.trip_id, db)
@@ -601,11 +815,11 @@ def main():
         trip_data_str = extract_search_trip_data_str(trip_data)
         print(f"Trip data string: {trip_data_str}\n")
         openai_api_key = os.getenv("OPENAI_API_KEY")
-        generic_search_keywords = extract_generic_trip_search_keywords_no_llm(trip_data)
-        print(f"Generic search keywords: {generic_search_keywords}\n")
+        # generic_search_keywords = extract_generic_trip_search_keywords_no_llm(trip_data)
+        # print(f"Generic search keywords: {generic_search_keywords}\n")
         llm_search_keywords = generate_trip_hotel_search_keywords_with_llm(trip_data_str, openai_api_key)
         print(f"LLM search keywords: {llm_search_keywords}\n")
-        search_keywords = (generic_search_keywords | llm_search_keywords)
+        search_keywords = llm_search_keywords # (generic_search_keywords | llm_search_keywords)
         print(f"Search keywords: {search_keywords}\n")
         parsed_results = search_mongo(hotels_collection, query_conditions, search_keywords, limit=5)
         print(f"Parsed results:")
@@ -618,16 +832,17 @@ def main():
         print()
         for r in reranked_results:
             print(f"name: {r['name']}")
-            print(f"brand: {r['brand']}")
+            print(f"brand: {r.get('brand', None)}")
             print(f"price_level: {r['price_level']}")
+            print(f"awards: {r.get('awards', None)}")
             print(f"description: {r['description']}")
             print(f"styles: {r['styles']}")
             print(f"trip_types: {r['trip_types']}")
             print(f"amenities: {r['amenities']}")
             print(f"rating: {r['rating']}")
         
-        print(f"Top raw: {json.dumps(parsed_results[0], indent=2)}")
-        print(f"Top reranked: {json.dumps(reranked_results[0], indent=2)}")
+        # print(f"Top raw: {json.dumps(parsed_results[0], indent=2)}")
+        # print(f"Top reranked: {json.dumps(reranked_results[0], indent=2)}")
         start_date = trip_data.get('startDate', None)
         end_date = trip_data.get('endDate', None)
         cleaned_cal_els = convert_mongo_trip_advisor_advisor_results_to_cal_item(
@@ -636,6 +851,53 @@ def main():
             start_date,
             end_date,
             cal_el_type = 'accomodation'
+        )
+        print()
+        print(json.dumps(cleaned_cal_els, indent=2))
+    
+    elif args.type == 'search_mongo_restaurants':
+        trip_data = load_trip(args.trip_id, db)
+        restaurants_collection = db["tripadvisor-restaurant_review"]
+        query_conditions = create_filters(trip_data)
+        print(f"Query conditions: {query_conditions}\n")
+        trip_data_str = extract_search_trip_data_str(trip_data)
+        print(f"Trip data string: {trip_data_str}\n")
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        # generic_search_keywords = extract_generic_trip_search_keywords_no_llm(trip_data)
+        # print(f"Generic search keywords: {generic_search_keywords}\n")
+        llm_search_keywords = generate_trip_restaurant_search_keywords_with_llm(trip_data_str, openai_api_key)
+        print(f"LLM search keywords: {llm_search_keywords}\n")
+        search_keywords = llm_search_keywords # (generic_search_keywords | llm_search_keywords)
+        print(f"Search keywords: {search_keywords}\n")
+        parsed_results = search_mongo(restaurants_collection, query_conditions, search_keywords, limit=5)
+        print(f"Parsed results:")
+        for r in parsed_results:
+            print(f"{r['score']}: {r['name']}")
+        reranked_results = rerank_restaurant_mongo_results(parsed_results, trip_data_str, openai_api_key)
+        print(f"\nReranked results:")
+        for r in reranked_results:
+            print(f"{r['score']}: {r['name']}")
+        print()
+        for r in reranked_results:
+            print(f"name: {r['name']}")
+            print(f"price_level: {r['price_level']}")
+            print(f"awards: {r.get('awards', None)}")
+            print(f"description: {r['description']}")
+            print(f"trip_types: {r['trip_types']}")
+            print(f"features: {r['features']}")
+            print(f"cuisine: {r['cuisine']}")
+            print(f"rating: {r['rating']}")
+        
+        # print(f"Top raw: {json.dumps(parsed_results[0], indent=2)}")
+        # print(f"Top reranked: {json.dumps(reranked_results[0], indent=2)}")
+        start_date = trip_data.get('startDate', None)
+        end_date = trip_data.get('endDate', None)
+        cleaned_cal_els = convert_mongo_trip_advisor_advisor_results_to_cal_item(
+            parsed_results,
+            args.trip_id,
+            start_date,
+            end_date,
+            cal_el_type = 'restaurant'
         )
         print()
         print(json.dumps(cleaned_cal_els, indent=2))
