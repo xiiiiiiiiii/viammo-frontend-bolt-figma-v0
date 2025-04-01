@@ -42,6 +42,9 @@ required_env_vars = [
     "MONGODB_DATABASE"
 ]
 
+# Global variable for mock_data flag
+mock_data = False
+
 # Verify all required environment variables are set
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
 if missing_vars:
@@ -137,10 +140,16 @@ def get_mock_calendar():
             "trip_id": "67d8a1e36efdc1eb41168f34",
             "name": "Stay at the Hotel Crillion",
             "type": "accommodation",
-            "min_cost": 2000,
-            "max_cost": 2000,
+            "budget": '$$$$',
             "notes": "Stayed at by 5 friends",
-            "location": "10 Place de la Concorde, 75008 Paris, France",
+            "location": {
+                "name": "Hotel Crillion",
+                "address": "10 Place de la Concorde, 75008 Paris, France",
+                "coordinates": {
+                    "lat": 48.8656,
+                    "lng": 2.3212
+                }
+            },
             "start_date": "2024-10-02",
             "end_date": "2024-10-06",
             "start_time": "15:00",
@@ -151,10 +160,16 @@ def get_mock_calendar():
             "trip_id": "67d8a1e36efdc1eb41168f34",
             "name": "Eat at Cafe Marmaton",
             "type": "restaurant",
-            "min_cost": 100,
-            "max_cost": 200,
+            "budget": '$$$',
             "notes": "4.7 Stars on google",
-            "location": "8 Rue de Marmaton, 75002 Paris, France",
+            "location": {
+                "name": "Cafe Marmaton",
+                "address": "8 Rue de Marmaton, 75002 Paris, France",
+                "coordinates": {
+                    "lat": 48.8656,
+                    "lng": 2.3212
+                }
+            },
             "start_date": "2024-10-03",
             "end_date": "2024-10-03",
             "start_time": "19:30",
@@ -165,10 +180,16 @@ def get_mock_calendar():
             "trip_id": "67d8a1e36efdc1eb41168f34",
             "name": "Visit The Louvre",
             "type": "attraction",
-            "min_cost": 40,
-            "max_cost": 40,
+            "budget": '$',
             "notes": "Optimal this time of year",
-            "location": "Rue de Rivoli, 75001 Paris, France",
+            "location": {
+                "name": "The Louvre",
+                "address": "Rue de Rivoli, 75001 Paris, France",
+                "coordinates": {
+                    "lat": 48.8656,
+                    "lng": 2.3212
+                }
+            },
             "start_date": "2024-10-04",
             "end_date": "2024-10-04",
             "start_time": "10:00",
@@ -179,10 +200,16 @@ def get_mock_calendar():
             "trip_id": "67d8a1e36efdc1eb41168f34",
             "name": "Shop at The Broken Arm",
             "type": "shopping",
-            "min_cost": 100,
-            "max_cost": 1000,
+            "budget": '$$$',
             "notes": "Saved by you on 9/23/24",
-            "location": "12 Rue Perrée, 75003 Paris, France",
+            "location": {
+                "name": "The Broken Arm",
+                "address": "12 Rue Perrée, 75003 Paris, France",
+                "coordinates": {
+                    "lat": 48.8656,
+                    "lng": 2.3212
+                }
+            },
             "start_date": "2024-10-05",
             "end_date": "2024-10-05",
             "start_time": "11:00",
@@ -193,10 +220,16 @@ def get_mock_calendar():
             "trip_id": "67d8a1e36efdc1eb41168f34",
             "name": "Coffee and Snacks at Tazi",
             "type": "cafe",
-            "min_cost": 20,
-            "max_cost": 60,
+            "budget": '$',
             "notes": "Recommended by 7 friends",
-            "location": "25 Rue des Gravilliers, 75003 Paris, France",
+            "location": {
+                "name": "The Broken Arm",
+                "address": "25 Rue des Gravilliers, 75003 Paris, France",
+                "coordinates": {
+                    "lat": 48.8656,
+                    "lng": 2.3212
+                }
+            },
             "start_date": "2024-10-05",
             "end_date": "2024-10-05",
             "start_time": "15:30",
@@ -208,25 +241,26 @@ def get_mock_calendar():
 def get_trips():
     """Get all trips from MongoDB"""
     try:
-        # Try to find trips in MongoDB
-        trips = list(db.trips.find())
-        print(f"Found {len(trips)} trips in database")
-        
-        # If no trips in database, return mock data
-        if not trips:
-            print("No trips found in database. Returning mock data as fallback")
-            trips = get_mock_trips()
-        
+        if mock_data:
+            return json_response(get_mock_trips())
+            
+        trips = db.trips.find()
         return json_response(trips)
     except Exception as e:
-        print(f"Error fetching trips: {e}")
-        return json_response({"error": str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/trips/<trip_id>', methods=['GET'])
 def get_trip(trip_id):
     """Get a specific trip by ID from MongoDB"""
     try:
-        # Try to convert to MongoDB ObjectId
+        if mock_data:
+            mock_trips = get_mock_trips()
+            for trip in mock_trips:
+                if trip["_id"]["$oid"] == trip_id:
+                    return json_response(trip)
+            return jsonify({"error": "Trip not found"}), 404
+            
+        # First try to parse as ObjectId
         try:
             # Try to convert string to ObjectId
             object_id = ObjectId(trip_id)
@@ -261,8 +295,7 @@ def get_trip(trip_id):
         return json_response({"error": f"Trip not found with ID: {trip_id}"}), 404
     
     except Exception as e:
-        print(f"Error fetching trip: {e}")
-        return json_response({"error": str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/trips/<trip_id>', methods=['DELETE'])
 def delete_trip(trip_id):
@@ -318,24 +351,22 @@ def delete_trip(trip_id):
 def get_calendar(trip_id):
     """Get calendar items for a trip from MongoDB"""
     try:
-        print(f"Fetching calendar items for trip ID: {trip_id}")
-        
-        # Clean the trip_id (remove quotes, etc.)
-        clean_trip_id = trip_id.strip('"\'').strip()
-        print(f"Cleaned trip ID: {clean_trip_id}")
-        
-        from bson.objectid import ObjectId
-        object_id = ObjectId(clean_trip_id)
-        print(f"Successfully converted trip_id to ObjectId: {object_id}")
+        if mock_data:
+            mock_calendar = get_mock_calendar()
+            filtered_calendar = [item for item in mock_calendar if item["trip_id"] == trip_id]
+            return json_response(filtered_calendar)
+            
+        # Convert trip_id to ObjectId
+        trip_obj_id = ObjectId(trip_id)
+        print(f"Successfully converted trip_id to ObjectId: {trip_id}")
         
         # Try to find calendar items by ObjectId
-        calendar_items = list(db.trip_calendar.find({"trip_id": object_id}))
+        calendar_items = list(db.trip_calendar.find({"trip_id": trip_obj_id}))
         print(f"Query with trip_id as ObjectId found {len(calendar_items)} items")
         return json_response(calendar_items)
     
     except Exception as e:
-        print(f"Error getting calendar items: {e}")
-        return json_response({"error": str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/debug/collections', methods=['GET'])
 def list_collections():
@@ -363,7 +394,6 @@ def list_collections():
         
         return json_response(result)
     except Exception as e:
-        print(f"Error listing collections: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/debug/trip_calendar_raw', methods=['GET'])
@@ -373,7 +403,6 @@ def get_trip_calendar_raw():
         calendar_items = list(db.trip_calendar.find())
         return json_response(calendar_items)
     except Exception as e:
-        print(f"Error getting raw trip_calendar: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/create_trip', methods=['POST'])
@@ -447,18 +476,20 @@ def search_hotels_for_trip(trip_id):
     """Search for hotels based on a trip ID"""
     print(f"\nsearch_hotels_for_trip with trip ID: {trip_id}\n\n")
     try:
-        # Parse the limit parameter (default to 10)
-        limit = request.args.get('limit', 10, type=int)
+        # Get query parameters
+        limit = request.args.get('limit', default=10, type=int)
+        
+        # Convert trip_id to ObjectId
+        trip_obj_id = ObjectId(trip_id)
+        print(f"Successfully converted trip_id to ObjectId: {trip_id}")
         
         # Get trip data from MongoDB
         try:
-            # Convert trip_id string to ObjectId
-            trip_id_obj = ObjectId(trip_id)
-            trip_data = db.trips.find_one({"_id": trip_id_obj})
+            trip_data = db.trips.find_one({"_id": trip_obj_id})
             
             if not trip_data:
                 return json_response({"error": f"No trip found with ID: {trip_id}"}), 404
-                
+            
             # Get trip title from either 'title' or 'name' field
             trip_title = trip_data.get('name', '')
             
@@ -940,7 +971,7 @@ def search_hotels_for_trip(trip_id):
                             print(f"Hotel at index 0 has no llm_explanation. Keys: {list(hotel.keys())}")
                     
                     formatted_hotel = {
-                        "trip_id": str(trip_id_obj),
+                        "trip_id": str(trip_obj_id),
                         "type": "accommodation",
                         "name": f"Stay at {name}",
                         "date": start_date,
@@ -1045,7 +1076,22 @@ if __name__ == '__main__':
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='MongoDB API Server')
     parser.add_argument('--port', type=int, default=5001, help='Port to run the server on (default: 5001)')
+    parser.add_argument('--mock-data', action='store_true', help='Use mock data instead of MongoDB connection')
     args = parser.parse_args()
+    
+    # Set global mock_data flag
+    mock_data = args.mock_data
+    
+    if mock_data:
+        print("Running with mock data - no MongoDB connection required")
+    else:
+        # Test MongoDB connection
+        try:
+            client.admin.command('ping')
+            print("Successfully connected to MongoDB!")
+        except Exception as e:
+            print(f"MongoDB connection error: {e}")
+            sys.exit(1)
     
     # Get port from command-line argument
     port = args.port
