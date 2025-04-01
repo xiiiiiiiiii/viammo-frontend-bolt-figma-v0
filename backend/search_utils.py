@@ -22,7 +22,7 @@ from bson.json_util import dumps, loads
 from datetime import datetime
 
 from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 
 DEFAULT_MIN_UNDERLYING_MONGO_RESULTS = 20
 

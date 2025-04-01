@@ -35,7 +35,8 @@ from search_utils import (
     extract_search_trip_data_str, extract_generic_trip_search_keywords_no_llm,
     generate_trip_hotel_search_keywords_with_llm, create_filters, search_mongo,
     convert_mongo_trip_advisor_advisor_results_to_cal_item, rerank_hotel_mongo_results,
-    DEFAULT_MIN_UNDERLYING_MONGO_RESULTS
+    DEFAULT_MIN_UNDERLYING_MONGO_RESULTS, generate_trip_restaurant_search_keywords_with_llm,
+    rerank_restaurant_mongo_results
 )
 
 # Load environment variables from .env file
@@ -654,7 +655,7 @@ def search_and_save_trip_elements(trip_id):
             else:
                 return json_response({"error": "No restaurants found for this trip"}), 404
             
-            return json_response({"message": "Hotel and restaurants saved to trip calendar"}), 200
+            return json_response(True), 200
                 
         except Exception as e:
             import traceback
