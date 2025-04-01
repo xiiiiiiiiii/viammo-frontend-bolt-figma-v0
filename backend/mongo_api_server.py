@@ -516,11 +516,76 @@ def search_hotels_for_trip(trip_id):
     except Exception as e:
         return json_response({"error": f"Error searching hotels: {str(e)}"}), 500
 
-@app.route('/api/hotels/<trip_id>/save', methods=['POST'])
-def search_and_save_hotel(trip_id):
-    """Search for a hotel based on a trip ID and save it to the trip_calendar collection"""
+@app.route('/api/restaurants/<trip_id>', methods=['GET'])
+def search_restaurants_for_trip(trip_id):
+    """Search for restaurants based on a trip ID"""
+    print(f"\nsearch_restaurants_for_trip with trip ID: {trip_id}\n\n")
     try:
-        print(f"Searching for a hotel and saving to trip calendar for trip ID: {trip_id}")
+        # Get query parameters
+        limit = request.args.get('limit', default=4, type=int)
+        
+        # Convert trip_id to ObjectId
+        trip_obj_id = ObjectId(trip_id)
+        print(f"Successfully converted trip_id to ObjectId: {trip_id}")
+        
+        # Get trip data from MongoDB
+        try:
+            trip_data = db.trips.find_one({"_id": trip_obj_id})
+            
+            if not trip_data:
+                return json_response({"error": f"No trip found with ID: {trip_id}"}), 404
+
+            trip_data_str = extract_search_trip_data_str(trip_data)
+            print(f"trip_data_str: {trip_data_str}")
+            
+            # Extract relevant keywords from trip data
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            search_keywords = generate_trip_restaurant_search_keywords_with_llm(trip_data_str, openai_api_key)
+            print(f"search_keywords: {search_keywords}")
+
+            # Build search query with available fields
+            query_conditions = create_filters(trip_data)
+            print(f"query_conditions: {query_conditions}")
+            
+            # Search for restaurants
+            restaurants_collection = db["tripadvisor-restaurant_review"]
+
+            # Build combined search including full-text search
+            mongo_search_limit = max(DEFAULT_MIN_UNDERLYING_MONGO_RESULTS, limit) # Get min 20 results to make sure reranking has enough results.
+            search_results = search_mongo(restaurants_collection, query_conditions, search_keywords, limit=mongo_search_limit)
+            
+            # Process results
+            if search_results:
+                # Debug: Print how many results were found
+                print(f"\nFound {len(search_results)} initial results from MongoDB")
+                
+                # Convert MongoDB documents to displayable JSON
+                parsed_results = json.loads(dumps(search_results))
+                
+                # Rerank results with llm
+                reranked_results = rerank_restaurant_mongo_results(parsed_results, trip_data_str, openai_api_key)
+                
+                # Create formatted results
+                start_date = trip_data.get('startDate', None)
+                end_date = trip_data.get('endDate', None)
+                cal_el_type = 'restaurant'
+                formatted_results = convert_mongo_trip_advisor_advisor_results_to_cal_item(reranked_results, trip_obj_id, start_date, end_date, cal_el_type)
+                
+                # Return the results limited to the requested count
+                return json_response(formatted_results[:limit])
+            else:
+                return json_response([])
+                
+        except Exception as e:
+            return json_response({"error": f"Error processing trip data: {str(e)}"}), 500
+    except Exception as e:
+        return json_response({"error": f"Error searching hotels: {str(e)}"}), 500
+
+@app.route('/api/draft_plan/<trip_id>/save', methods=['POST'])
+def search_and_save_trip_elements(trip_id):
+    """Search for a hotel, restaurants, etc based on a trip ID and save it to the trip_calendar collection"""
+    try:
+        print(f"Searching for a hotel and restaurants and saving to trip calendar for trip ID: {trip_id}")
         
         # First, make a direct API call to the search endpoint instead of using test_request_context
         # This is more reliable and avoids issues with request context
@@ -533,7 +598,7 @@ def search_and_save_hotel(trip_id):
             if not trip_data:
                 return json_response({"error": f"No trip found with ID: {trip_id}"}), 404
             
-            # Call the existing endpoint directly with limit=1
+            # Call the existing hotel endpoint directly with limit=1
             response = requests.get(f"http://localhost:5001/api/hotels/{trip_id}?limit=1")
             if response.status_code != 200:
                 return json_response({"error": f"Error fetching hotel data: {response.text}"}), response.status_code
@@ -557,14 +622,39 @@ def search_and_save_hotel(trip_id):
                 
                 # Insert into trip_calendar collection
                 result = db.trip_calendar.insert_one(hotel)
-                
-                # Add the MongoDB ID to the result
-                hotel['_id'] = str(result.inserted_id)
-                
-                # Return the saved hotel
-                return json_response(hotel)
             else:
                 return json_response({"error": "No hotels found for this trip"}), 404
+            
+            # Call the existing restaurant endpoint directly with limit=4
+            n = 4
+            response = requests.get(f"http://localhost:5001/api/restaurants/{trip_id}?limit={n}")
+            if response.status_code != 200:
+                return json_response({"error": f"Error fetching restaurant data: {response.text}"}), response.status_code
+            
+            # Parse the JSON response
+            restaurants_data = response.json()
+            
+            # Check if we have results
+            if not restaurants_data or len(restaurants_data) == 0:
+                return json_response({"error": "No restaurants found for this trip"}), 404
+            
+            # Get the first n restaurants (we asked for limit=4)
+            restaurants = restaurants_data[:n]
+            
+            # Make sure we have a restaurant to save
+            if restaurants:
+                print(f"Saving restaurants to trip calendar: {', '.join([r['name'] for r in restaurants])}")
+                
+                # Add trip_id to the restaurant data as an ObjectId
+                for restaurant in restaurants:
+                    restaurant['trip_id'] = ObjectId(trip_id)
+                
+                # Insert into trip_calendar collection
+                result = db.trip_calendar.insert_many(restaurants)
+            else:
+                return json_response({"error": "No restaurants found for this trip"}), 404
+            
+            return json_response({"message": "Hotel and restaurants saved to trip calendar"}), 200
                 
         except Exception as e:
             import traceback

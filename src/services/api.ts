@@ -139,28 +139,6 @@ export const api = {
     }
   },
   
-  // Fetch hotel recommendations for a trip
-  getHotelRecommendations: async (tripId: string): Promise<TripCalendarItem[]> => {
-    try {
-      console.log(`Fetching hotel recommendations for trip with ID: ${tripId}...`);
-      
-      // Get a single hotel recommendation from MongoDB API
-      const response = await axios.get(`${API_BASE_URL}/hotels/${tripId}?limit=1`);
-      console.log('API response for hotel recommendations:', response.data);
-      
-      if (response.data && Array.isArray(response.data)) {
-        return response.data;
-      }
-      
-      throw new Error('Invalid response from API server');
-    } catch (error) {
-      console.error('Error fetching hotel recommendations:', error);
-      throw error instanceof Error 
-        ? error 
-        : new Error('Failed to fetch hotel recommendations');
-    }
-  },
-  
   // Add a hotel to the trip calendar
   addHotelToCalendar: async (tripId: string, hotelData: TripCalendarItem): Promise<TripCalendarItem> => {
     try {
@@ -189,31 +167,33 @@ export const api = {
     }
   },
   
-  // Search for and save a hotel recommendation in one call
-  searchAndSaveHotelRecommendation: async (tripId: string): Promise<TripCalendarItem> => {
+  // Plan draft trip.
+  planDraftTrip: async (tripId: string): Promise<{ success: boolean }> => {
     try {
-      console.log(`Searching for and saving a hotel recommendation for trip ID: ${tripId}...`);
+      console.log(`Searching for and saving a draft plan for trip ID: ${tripId}...`);
       
       // Call the combined endpoint
-      const response = await axios.post(`${API_BASE_URL}/hotels/${tripId}/save`);
-      console.log('API response for hotel search and save:', response.data);
+      const response = await axios.post(`${API_BASE_URL}/draft_plan/${tripId}/save`);
+      console.log('API response for draft plan search and save:', response.data);
       
-      if (response.data && response.data._id) {
-        return response.data;
+      // Check if status is 200 (successful)
+      if (response.status === 200) {
+        // Return a success object since we don't have an item with _id anymore
+        return { success: true };
       }
       
-      throw new Error('Failed to get and save hotel recommendation');
+      throw new Error('Failed to get and save draft plan');
     } catch (error) {
-      console.error('Error getting and saving hotel recommendation:', error);
+      console.error('Error getting and saving draft plan:', error);
       
-      // Check if it's our special "no hotels" error
+      // Check if it's our special "no results" error
       if (error instanceof Error && error.message === 'NO_RESULTS_FOUND') {
         throw new Error('NO_RESULTS_FOUND');
       }
       
       throw error instanceof Error 
         ? error 
-        : new Error('Failed to get and save hotel recommendation');
+        : new Error('Failed to get and save draft plan');
     }
   }
 };
