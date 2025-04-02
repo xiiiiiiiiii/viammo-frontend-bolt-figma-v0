@@ -594,30 +594,23 @@ def search_and_save_trip_elements(trip_id):
     try:
         print(f"Searching for a hotel and restaurants and saving to trip calendar for trip ID: {trip_id}")
         
-        # First, make a direct API call to the search endpoint instead of using test_request_context
-        # This is more reliable and avoids issues with request context
+        # First, make sure the trip exists
+        trip_id_obj = ObjectId(trip_id)
+        trip_data = db.trips.find_one({"_id": trip_id_obj})
+        
+        if not trip_data:
+            return json_response({"error": f"No trip found with ID: {trip_id}"}), 404
+        
+        # Call the hotel search function directly
         try:
-            # Call the search_hotels_for_trip function directly with limit=1
-            # Get trip data from MongoDB
-            trip_id_obj = ObjectId(trip_id)
-            trip_data = db.trips.find_one({"_id": trip_id_obj})
-            
-            if not trip_data:
-                return json_response({"error": f"No trip found with ID: {trip_id}"}), 404
-            
-            # Call the existing hotel endpoint directly with limit=1
-            response = requests.get(f"http://localhost:5001/api/hotels/{trip_id}?limit=1")
-            if response.status_code != 200:
-                return json_response({"error": f"Error fetching hotel data: {response.text}"}), response.status_code
-            
-            # Parse the JSON response
-            hotels_data = response.json()
+            # Get hotel data by calling the search function directly
+            hotels_data = search_hotels_for_trip(trip_id).get_json()
             
             # Check if we have results
             if not hotels_data or len(hotels_data) == 0:
                 return json_response({"error": "No hotels found for this trip"}), 404
             
-            # Get the first hotel (we asked for limit=1)
+            # Get the first hotel (we want limit=1)
             hotel = hotels_data[0]
             
             # Make sure we have a hotel to save
@@ -632,20 +625,15 @@ def search_and_save_trip_elements(trip_id):
             else:
                 return json_response({"error": "No hotels found for this trip"}), 404
             
-            # Call the existing restaurant endpoint directly with limit=4
-            n = 4
-            response = requests.get(f"http://localhost:5001/api/restaurants/{trip_id}?limit={n}")
-            if response.status_code != 200:
-                return json_response({"error": f"Error fetching restaurant data: {response.text}"}), response.status_code
-            
-            # Parse the JSON response
-            restaurants_data = response.json()
+            # Call the restaurant search function directly
+            n = 4  # Number of restaurants to get
+            restaurants_data = search_restaurants_for_trip(trip_id).get_json()
             
             # Check if we have results
             if not restaurants_data or len(restaurants_data) == 0:
                 return json_response({"error": "No restaurants found for this trip"}), 404
             
-            # Get the first n restaurants (we asked for limit=4)
+            # Get the first n restaurants
             restaurants = restaurants_data[:n]
             
             # Make sure we have a restaurant to save
@@ -690,9 +678,18 @@ if __name__ == '__main__':
     # Set global mock_data flag
     mock_data = args.mock_data
     
+    # Get port from command-line argument
+    port = args.port
+    
     if mock_data:
         print("Running with mock data - no MongoDB connection required")
+        print(f"\n====== Starting MongoDB API Server on port {port} ======")
+        print("Database: viammo-alpha")
+        print(f"\n====== Starting API Server on port {port} ======")
+        app.run(host='0.0.0.0', port=port)
     else:
+        # Only attempt MongoDB connection if not using mock data
+        
         # Test MongoDB connection
         try:
             client.admin.command('ping')
@@ -700,41 +697,35 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"MongoDB connection error: {e}")
             sys.exit(1)
-    
-    # Get port from command-line argument
-    port = args.port
-    
-    print(f"\n====== Starting MongoDB API Server on port {port} ======")
-    print(f"Database: {database_name}")
-    
-    try:
-        # Verify connection to MongoDB
-        client = MongoClient(uri)
-        db = client[database_name]
-        
-        # Check and list collections
-        collections = db.list_collection_names()
-        print(f"\nAvailable MongoDB collections: {collections}")
-        
-        # Check for trips
-        trips = list(db.trips.find())
-        print(f"Found {len(trips)} trips in the database")
-        
-        # Check for trip calendar collections
-        if 'trip_calendar' in collections:
-            cal_items = list(db.trip_calendar.find())
-            print(f"Found {len(cal_items)} items in trip_calendar collection")
             
-            if cal_items:
-                print(f"Sample trip_calendar item fields: {list(cal_items[0].keys())}")
-                print("\nTrip calendar items:")
-                for item in cal_items:
-                    trip_id_val = item.get('trip_id')
-                    trip_id_type = type(trip_id_val).__name__
-                    print(f"  - {item.get('type')}: {item.get('name')}, trip_id type: {trip_id_type}, value: {trip_id_val}")
-        
-        print(f"\n====== Starting API Server on port {port} ======")
-        app.run(host='0.0.0.0', port=port)
-    except Exception as e:
-        print(f"Error connecting to MongoDB: {e}")
-        exit(1)
+        try:
+            # Verify connection to MongoDB
+            client = MongoClient(uri)
+            db = client[database_name]
+            
+            # Check and list collections
+            collections = db.list_collection_names()
+            print(f"\nAvailable MongoDB collections: {collections}")
+            
+            # Check for trips
+            trips = list(db.trips.find())
+            print(f"Found {len(trips)} trips in the database")
+            
+            # Check for trip calendar collections
+            if 'trip_calendar' in collections:
+                cal_items = list(db.trip_calendar.find())
+                print(f"Found {len(cal_items)} items in trip_calendar collection")
+                
+                if cal_items:
+                    print(f"Sample trip_calendar item fields: {list(cal_items[0].keys())}")
+                    print("\nTrip calendar items:")
+                    for item in cal_items:
+                        trip_id_val = item.get('trip_id')
+                        trip_id_type = type(trip_id_val).__name__
+                        print(f"  - {item.get('type')}: {item.get('name')}, trip_id type: {trip_id_type}, value: {trip_id_val}")
+            
+            print(f"\n====== Starting API Server on port {port} ======")
+            app.run(host='0.0.0.0', port=port)
+        except Exception as e:
+            print(f"Error connecting to MongoDB: {e}")
+            exit(1)
