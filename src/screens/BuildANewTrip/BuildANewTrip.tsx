@@ -20,6 +20,7 @@ import {
 } from "@mui/material";
 import axios from "axios";
 import { useTripContext } from "../../contexts/TripContext";
+import { API_BASE_URL } from "../../services/api";
 
 // Create a theme that matches the app's styling
 const theme = createTheme({
@@ -425,7 +426,7 @@ export const BuildANewTrip = (): JSX.Element => {
       };
 
       console.log("Sending trip data:", tripData);
-      const api_endpoint = 'http://localhost:5001/api/create_trip';
+      const api_endpoint = `${API_BASE_URL}/create_trip`;
       console.log("API endpoint:", api_endpoint);
       
       // Send request to create a new trip

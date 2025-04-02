@@ -3,7 +3,7 @@ import { Trip, TripCalendarItem } from './types';
 
 // API base URL - when using the Vite proxy, we can simply use '/api'
 // This will be proxied to http://localhost:5001/api through the Vite dev server
-const API_BASE_URL = '/api';
+export const API_BASE_URL = '/api';
 
 // API functions for MongoDB operations
 export const api = {
