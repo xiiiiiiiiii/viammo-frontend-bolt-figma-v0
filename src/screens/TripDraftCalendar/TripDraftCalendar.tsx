@@ -191,7 +191,7 @@ const TripDraftCalendar: React.FC = () => {
             console.log("Coming from BuildANewTrip screen - searching for hotel recommendations");
             try {
               setBuildingTrip(true);
-              setBuildingTripMessage('Finding and saving hotel recommendations for your trip...');
+              setBuildingTripMessage('Finding and saving hotels, restaurants, and activities for your trip...');
               
               // Search and save hotel recommendations
               const success = await api.planDraftTrip(tripId);

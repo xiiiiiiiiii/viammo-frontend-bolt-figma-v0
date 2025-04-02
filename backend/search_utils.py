@@ -103,7 +103,7 @@ def extract_search_trip_data_str(trip_data) -> str:
     
     # Debug other key fields
     total_budget = trip_data.get('totalBudget', '')
-    trip_data_string += f"- totalBudget: {total_budget}\n"
+    trip_data_string += f"- totalBudget: {total_budget} (from min at $ to max at $$$$)\n"
     
     notes = trip_data.get('notes', '')
     trip_data_string += f"- notes: {notes}\n"
@@ -253,8 +253,7 @@ def create_filters(trip_data) -> str:
     """
     Creates following basic mongo filters:
     1. geo filters based on trip destination
-    2. budget filter based on trip budget
-    3. only records with a non empty description fields (otherwise generally bad result and hard to sell to userx)
+    2. only records with a non empty description fields (otherwise generally bad result and hard to sell to userx)
     """
     if not trip_data:
         print(f"Can't extract trip data string from None trip data.")
@@ -331,40 +330,6 @@ def create_filters(trip_data) -> str:
     else:
         print(f"Can't filter on destination because destination is None.")
     
-    # Add price level filter if available
-    price_level = trip_data.get('totalBudget', "")
-    if price_level:
-        #TODO: generalize to activities where cheaper is ok too, e.g. visiting
-        # the Louvre in Paris isn't expensive but still worth it.
-
-        # Create an OR query for price levels including one $ below and one $ above
-        price_conditions = []
-        
-        # Add the exact price level
-        price_conditions.append({"price_level": price_level})
-        
-        # Determine price level by counting $ symbols
-        if price_level == "$":
-            # Only add one level above for $ (can't go below $)
-            price_conditions.append({"price_level": "$$"})
-        elif price_level == "$$":
-            # Add one level below and one level above
-            price_conditions.append({"price_level": "$"})
-            price_conditions.append({"price_level": "$$$"})
-        elif price_level == "$$$":
-            # Add one level below and one level above
-            price_conditions.append({"price_level": "$$"})
-            price_conditions.append({"price_level": "$$$$"})
-        elif price_level == "$$$$":
-            # Only add one level below for $$$$ (can't go above $$$$)
-            price_conditions.append({"price_level": "$$$"})
-        
-        # Add OR condition to match any price level in the range
-        if len(price_conditions) > 1:
-            query_conditions.append({"$or": price_conditions})
-        else:
-            query_conditions.append(price_conditions[0])
-    
     return query_conditions
 
 def create_trip_advisor_hotel_search_index(hotels_collection):
@@ -386,6 +351,7 @@ def create_trip_advisor_hotel_search_index(hotels_collection):
             ("awards.display_name", "text"),
             ("amenities", "text"),
             ("brand", "text"),
+            ("price_level", "text"),
         ], name="text_search_index")
 
 def create_trip_advisor_restaurant_search_index(restaurants_collection):
@@ -405,7 +371,8 @@ def create_trip_advisor_restaurant_search_index(restaurants_collection):
             ("trip_types.name", "text"),
             ("awards.display_name", "text"),
             ("features", "text"),
-            ("cuisine.name", "text")
+            ("cuisine.name", "text"),
+            ("price_level", "text"),
         ], name="text_search_index")
 
 def convert_mongo_trip_advisor_advisor_results_to_cal_item(parsed_results, trip_obj_id, start_date, end_date, cal_el_type):
@@ -536,8 +503,8 @@ def rerank_hotel_mongo_results(parsed_results, trip_data_str, openai_api_key):
         # Create a prompt template for hotel characteristics
         rerank_template = """
         Based on the following trip information and list of hotels, select the single best hotel that matches the trip requirements.
-        Take into account all of the trip information below and how the hotel matches the trip requirements. Please make sure to
-        only provide a hotel with a different price level if there are no other hotels with the desired price level available.
+        Take into account all of the trip information below and how the hotel matches the trip requirements. Don't return a hotel
+        at a higher price level than the trip.
         
         Trip Information:
         {trip_data_str}
@@ -651,8 +618,8 @@ def rerank_restaurant_mongo_results(parsed_results, trip_data_str, openai_api_ke
         # Create a prompt template for restaurant characteristics
         rerank_template = """
         Based on the following trip information and list of restaurants, select the {num_recs} best restaurants that match the trip requirements.
-        Take into account all of the trip information below and how the restaurant matches the trip requirements. Please make sure to
-        only provide a restaurant with a different price level if there are no other restaurants with the desired price level available.
+        Take into account all of the trip information below and how the restaurant matches the trip requirements. Don't return restaurants
+        at a higher price level than the trip. If there is truly an exception, only return one restaurant at a price level higher than the trip.
         
         Trip Information:
         {trip_data_str}
@@ -821,16 +788,18 @@ def main():
         # print(f"Generic search keywords: {generic_search_keywords}\n")
         llm_search_keywords = generate_trip_hotel_search_keywords_with_llm(trip_data_str, openai_api_key)
         print(f"LLM search keywords: {llm_search_keywords}\n")
-        search_keywords = llm_search_keywords # (generic_search_keywords | llm_search_keywords)
+        trip_price_level = trip_data.get('totalBudget', None)
+        print(f"trip_price_level: {trip_price_level}\n")
+        search_keywords = llm_search_keywords | set([trip_price_level]) if trip_price_level else llm_search_keywords
         print(f"Search keywords: {search_keywords}\n")
         parsed_results = search_mongo(hotels_collection, query_conditions, search_keywords, limit=DEFAULT_MIN_UNDERLYING_MONGO_RESULTS)
         print(f"Parsed results:")
         for r in parsed_results:
-            print(f"{r['score']}: {r['name']}")
+            print(f"{r['score']}: {r['name']} ({r.get('price_level', None)})")
         reranked_results = rerank_hotel_mongo_results(parsed_results, trip_data_str, openai_api_key)
         print(f"\nReranked results:")
         for r in reranked_results:
-            print(f"{r['score']}: {r['name']}")
+            print(f"{r['score']}: {r['name']} ({r.get('price_level', None)})")
         print()
         for r in reranked_results:
             print(f"name: {r['name']}")
@@ -869,20 +838,22 @@ def main():
         # print(f"Generic search keywords: {generic_search_keywords}\n")
         llm_search_keywords = generate_trip_restaurant_search_keywords_with_llm(trip_data_str, openai_api_key)
         print(f"LLM search keywords: {llm_search_keywords}\n")
-        search_keywords = llm_search_keywords # (generic_search_keywords | llm_search_keywords)
+        trip_price_level = trip_data.get('totalBudget', None)
+        print(f"trip_price_level: {trip_price_level}\n")
+        search_keywords = llm_search_keywords | set([trip_price_level]) if trip_price_level else llm_search_keywords
         print(f"Search keywords: {search_keywords}\n")
         parsed_results = search_mongo(restaurants_collection, query_conditions, search_keywords, limit=DEFAULT_MIN_UNDERLYING_MONGO_RESULTS)
         print(f"Parsed results:")
         for r in parsed_results:
-            print(f"{r['score']}: {r['name']}")
+            print(f"{r['score']}: {r['name']} ({r.get('price_level', None)})")
         reranked_results = rerank_restaurant_mongo_results(parsed_results, trip_data_str, openai_api_key)
         print(f"\nReranked results:")
         for r in reranked_results:
-            print(f"{r['score']}: {r['name']}")
+            print(f"{r['score']}: {r['name']} ({r.get('price_level', None)})")
         print()
         for r in reranked_results:
             print(f"name: {r['name']}")
-            print(f"price_level: {r['price_level']}")
+            print(f"price_level: {r.get('price_level', None)}")
             print(f"awards: {r.get('awards', None)}")
             print(f"description: {r['description']}")
             print(f"trip_types: {r['trip_types']}")

@@ -477,6 +477,9 @@ def search_hotels_for_trip(trip_id):
             # Extract relevant keywords from trip data
             openai_api_key = os.getenv("OPENAI_API_KEY")
             search_keywords = generate_trip_hotel_search_keywords_with_llm(trip_data_str, openai_api_key)
+            trip_price_level = trip_data.get('totalBudget', None)
+            print(f"trip_price_level: {trip_price_level}\n")
+            search_keywords = search_keywords | set([trip_price_level]) if trip_price_level else search_keywords
             print(f"search_keywords: {search_keywords}")
 
             # Build search query with available fields
@@ -542,6 +545,9 @@ def search_restaurants_for_trip(trip_id):
             # Extract relevant keywords from trip data
             openai_api_key = os.getenv("OPENAI_API_KEY")
             search_keywords = generate_trip_restaurant_search_keywords_with_llm(trip_data_str, openai_api_key)
+            trip_price_level = trip_data.get('totalBudget', None)
+            print(f"trip_price_level: {trip_price_level}\n")
+            search_keywords = search_keywords | set([trip_price_level]) if trip_price_level else search_keywords
             print(f"search_keywords: {search_keywords}")
 
             # Build search query with available fields
