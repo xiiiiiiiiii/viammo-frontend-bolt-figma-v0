@@ -36,7 +36,8 @@ from search_utils import (
     generate_trip_hotel_search_keywords_with_llm, create_filters, search_mongo,
     convert_mongo_trip_advisor_advisor_results_to_cal_item, rerank_hotel_mongo_results,
     DEFAULT_MIN_UNDERLYING_MONGO_RESULTS, generate_trip_restaurant_search_keywords_with_llm,
-    rerank_restaurant_mongo_results
+    rerank_restaurant_mongo_results, generate_trip_activity_search_keywords_with_llm,
+    rerank_activity_mongo_results, convert_mongo_viator_product_results_to_cal_item
 )
 
 # Load environment variables from .env file
@@ -588,6 +589,77 @@ def search_restaurants_for_trip(trip_id):
     except Exception as e:
         return json_response({"error": f"Error searching hotels: {str(e)}"}), 500
 
+@app.route('/api/activities/<trip_id>', methods=['GET'])
+def search_activities_for_trip(trip_id):
+    """Search for activities from viator products based on a trip ID"""
+    print(f"\nsearch_activities_for_trip with trip ID: {trip_id}\n\n")
+    try:
+        # Get query parameters
+        limit = request.args.get('limit', default=4, type=int)
+        
+        # Convert trip_id to ObjectId
+        trip_obj_id = ObjectId(trip_id)
+        print(f"Successfully converted trip_id to ObjectId: {trip_id}")
+        
+        # Get trip data from MongoDB
+        try:
+            trip_data = db.trips.find_one({"_id": trip_obj_id})
+            
+            if not trip_data:
+                return json_response({"error": f"No trip found with ID: {trip_id}"}), 404
+
+            trip_data_str = extract_search_trip_data_str(trip_data)
+            print(f"trip_data_str: {trip_data_str}")
+            
+            # Extract relevant keywords from trip data
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            search_keywords = generate_trip_activity_search_keywords_with_llm(trip_data_str, openai_api_key)
+            trip_price_level = trip_data.get('totalBudget', None)
+            print(f"trip_price_level: {trip_price_level}\n")
+            search_keywords = search_keywords | set([trip_price_level]) if trip_price_level else search_keywords
+            print(f"search_keywords: {search_keywords}")
+            #TODO: Add $$ to price point search logic.
+
+            # Build search query with available fields
+            trip_data_for_filter = trip_data.copy()
+            trip_data_for_filter.pop('destination', None)
+            query_conditions = create_filters(trip_data_for_filter)
+            print(f"query_conditions: {query_conditions}")
+            
+            # Search for restaurants
+            activities_collection = db["viator-products"]
+
+            # Build combined search including full-text search
+            mongo_search_limit = max(DEFAULT_MIN_UNDERLYING_MONGO_RESULTS, limit) # Get min 20 results to make sure reranking has enough results.
+            search_results = search_mongo(activities_collection, query_conditions, search_keywords, limit=mongo_search_limit)
+            
+            # Process results
+            if search_results:
+                # Debug: Print how many results were found
+                print(f"\nFound {len(search_results)} initial results from MongoDB")
+                
+                # Convert MongoDB documents to displayable JSON
+                parsed_results = json.loads(dumps(search_results))
+                
+                # Rerank results with llm
+                reranked_results = rerank_activity_mongo_results(parsed_results, trip_data_str, openai_api_key)
+                
+                # Create formatted results
+                start_date = trip_data.get('startDate', None)
+                end_date = trip_data.get('endDate', None)
+                cal_el_type = 'activity'
+                formatted_results = convert_mongo_viator_product_results_to_cal_item(reranked_results, trip_obj_id, start_date, end_date, cal_el_type)
+                
+                # Return the results limited to the requested count
+                return json_response(formatted_results[:limit])
+            else:
+                return json_response([])
+                
+        except Exception as e:
+            return json_response({"error": f"Error processing trip data: {str(e)}"}), 500
+    except Exception as e:
+        return json_response({"error": f"Error searching hotels: {str(e)}"}), 500
+
 @app.route('/api/draft_plan/<trip_id>/save', methods=['POST'])
 def search_and_save_trip_elements(trip_id):
     """Search for a hotel, restaurants, etc based on a trip ID and save it to the trip_calendar collection"""
@@ -649,19 +721,43 @@ def search_and_save_trip_elements(trip_id):
             else:
                 return json_response({"error": "No restaurants found for this trip"}), 404
             
+            # Call the restaurant search function directly
+            n = 4  # Number of activities to get
+            activities_data = search_activities_for_trip(trip_id).get_json()
+            
+            # Check if we have results
+            if not activities_data or len(activities_data) == 0:
+                return json_response({"error": "No activities found for this trip"}), 404
+            
+            # Get the first n activities
+            activities = activities_data[:n]
+            
+            # Make sure we have an activity to save
+            if activities:
+                print(f"Saving activities to trip calendar: {', '.join([r['name'] for r in activities])}")
+                
+                # Add trip_id to the activity data as an ObjectId
+                for activity in activities:
+                    activity['trip_id'] = ObjectId(trip_id)
+                
+                # Insert into trip_calendar collection
+                result = db.trip_calendar.insert_many(activities)
+            else:
+                return json_response({"error": "No activities found for this trip"}), 404
+            
             return json_response(True), 200
                 
         except Exception as e:
             import traceback
-            print(f"Error searching or saving hotel: {e}")
+            print(f"Error planning trip: {e}")
             print(traceback.format_exc())
-            return json_response({"error": f"Error searching or saving hotel: {str(e)}"}), 500
+            return json_response({"error": f"Error planning trip: {str(e)}"}), 500
                 
     except Exception as e:
         import traceback
-        print(f"Error searching or saving hotel: {e}")
+        print(f"Error planning trip: {e}")
         print(traceback.format_exc())
-        return json_response({"error": f"Error searching or saving hotel: {str(e)}"}), 500
+        return json_response({"error": f"Error planning trip: {str(e)}"}), 500
 
 @app.route('/api/health', methods=['GET'])
 def health_check():

@@ -248,7 +248,56 @@ def generate_trip_restaurant_search_keywords_with_llm(trip_data_string, openai_a
     except ImportError:
         print("Warning: LangChain or OpenAI packages not installed. Skipping keyword generation.")
         print("To install required packages: pip install langchain langchain-openai")
+
+def generate_trip_activity_search_keywords_with_llm(trip_data_string, openai_api_key) -> str:
+    """
+    Generate activity listing keywords to search viator activity listings stores in monfo with bm25.
+    """
+
+    if not openai_api_key:
+        print("Warning: OPENAI_API_KEY environment variable not set. Skipping LLM keyword extraction.")
+        return None
     
+    try:        
+        llm_model = "gpt-4o-mini"
+        
+        # Initialize the LLM with the API key explicitly
+        llm = ChatOpenAI(model=llm_model, openai_api_key=openai_api_key)
+        
+        # Define a prompt template for hotel characteristics
+        template = """
+        Based on the following trip information, generate keywords for ideal activity characteristics that would best match this trip:
+        
+        {trip_data_string}
+        
+        Please provide a list of keywords from the following categories to use in a bm25 activity search:
+        1. Ideal detailed activity description
+        2. 10-15 features keywords or tags that would be important for this trip (e.g., "Walking Tours", "Historical Tours", "Night Tours")
+        
+        Format your response as a simple list of lowercase keywords separated by spaces.
+        
+        Return only the list of keywords, no bullets, no numbers, no other text.
+        """
+        
+        prompt = ChatPromptTemplate.from_template(template)
+        
+        # Generate the response
+        chain = prompt | llm
+        response = chain.invoke({"trip_data_string": trip_data_string})
+
+        # Extract keywords from the response
+        response_content = response.content
+        if not response_content or len(response.content.split()) == 0:
+            print(f"LLM did not return a response to generate restaurant search keywords")
+            return None
+        else:
+            generated_keywords = set([word.lower() for word in response.content.split()])
+            
+        return generated_keywords
+    except ImportError:
+        print("Warning: LangChain or OpenAI packages not installed. Skipping keyword generation.")
+        print("To install required packages: pip install langchain langchain-openai")
+
 def create_filters(trip_data) -> str:
     """
     Creates following basic mongo filters:
@@ -375,6 +424,24 @@ def create_trip_advisor_restaurant_search_index(restaurants_collection):
             ("price_level", "text"),
         ], name="text_search_index")
 
+def create_viator_activity_search_index(activities_collection):
+    # Check if the collection has a text index
+    indexes = activities_collection.list_indexes()
+    text_index_exists = False
+    for index in indexes:
+        if index.get('name') == 'text_search_index':
+            text_index_exists = True
+            break
+            
+    if not text_index_exists:
+        # Create text index for full-text search
+        activities_collection.create_index([
+            ("title", "text"), 
+            ("description", "text"),
+            ("tags_str", "text"),
+            ("pricing.summary.fromPrice", "text"),
+        ], name="text_search_index")
+
 def convert_mongo_trip_advisor_advisor_results_to_cal_item(parsed_results, trip_obj_id, start_date, end_date, cal_el_type):
     # Create formatted results
     formatted_results = []
@@ -439,6 +506,86 @@ def convert_mongo_trip_advisor_advisor_results_to_cal_item(parsed_results, trip_
         }
         
         formatted_results.append(formatted_hotel)
+    
+    return formatted_results
+
+def convert_mongo_viator_product_results_to_cal_item(parsed_results, trip_obj_id, start_date, end_date, cal_el_type):
+    #TODO: add address and lat+long coordinates.
+
+    # Create formatted results
+    formatted_results = []
+    for i, hit in enumerate(parsed_results):
+        hit_id = hit.get('productCode', 'N/A')
+        name = hit.get('title', 'Unnamed')
+
+        rating = "N/A"
+        if 'reviews' in hit and 'combinedAverageRating' in hit['reviews']:
+            rating = f"{hit['reviews']['combinedAverageRating']}/5"
+        budget = "N/A"
+        if 'pricing' in hit and 'summary' in hit['pricing'] and 'fromPrice' in hit['pricing']['summary']:
+            budget = hit['pricing']['summary']['fromPrice']
+        
+        # Get main photo URL if available
+        main_photo_url = ""
+        if 'images' in hit and len(hit['images']) > 0:
+            first_photo = hit['images'][0]
+            if 'variants' in first_photo and len(first_photo['variants']) > 0:
+                photo_variants = first_photo['variants']
+                max_height_variant = max(photo_variants, key=lambda v: v.get('height', 0))
+                main_photo_url = max_height_variant.get('url', "")
+        
+        # Get Duration
+        duration_minutes = None
+        if 'duration' in hit:
+            duration_minutes = hit['duration'].get('fixedDurationInMinutes', None)
+        
+        # # Get address data
+        # address_obj = hit.get('address_obj', {})
+        # address_string = address_obj.get('address_string', '') if address_obj else ''
+        
+        # # Get coordinates
+        # latitude = hit.get('latitude', None)
+        # longitude = hit.get('longitude', None)
+        
+        # Get description
+        description = hit.get('description', '')
+        
+        # Create formatted hotel object
+        today_date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        
+        # Get LLM generated notes field if present
+        notes = hit.get("llm_explanation", None)
+        
+        if cal_el_type == "activity":
+            name = f"Do {name}"
+        else:
+            name = name
+        
+        formatted_activity = {
+            "trip_id": str(trip_obj_id),
+            "type": cal_el_type,
+            "name": name,
+            "date": start_date,
+            "endDate": end_date,
+            "duration_minutes": duration_minutes,
+            # "location": {
+            #     "name": name,
+            #     "address": address_string or "",
+            #     "coordinates": {
+            #         "lat": float(latitude) if latitude else 0,
+            #         "lng": float(longitude) if longitude else 0
+            #     }
+            # },
+            "notes": notes,
+            "status": "draft",
+            "createdAt": today_date,
+            "updatedAt": today_date,
+            "description": description,
+            "main_media": main_photo_url,
+            "budget": budget
+        }
+        
+        formatted_results.append(formatted_activity)
     
     return formatted_results
 
@@ -537,7 +684,7 @@ def rerank_hotel_mongo_results(parsed_results, trip_data_str, openai_api_key):
             Trip Types: {', '.join([t.get('name', t) if isinstance(t, dict) else t for t in hotel.get('trip_types', [])])}
             Amenities: {', '.join([a.get('name', a) if isinstance(a, dict) else a for a in hotel.get('amenities', [])])}
             Brand: {hotel.get('brand', 'N/A')}
-            Description: {hotel.get('description', '')[:200]}
+            Description: {hotel.get('description', '')}
             """
             hotels_data.append(hotel_info)
 
@@ -656,7 +803,7 @@ def rerank_restaurant_mongo_results(parsed_results, trip_data_str, openai_api_ke
             Cuisine: {', '.join([c.get('name', c) if isinstance(c, dict) else c for c in restaurant.get('cuisine', [])])}
             Trip Types: {', '.join([t.get('name', t) if isinstance(t, dict) else t for t in restaurant.get('trip_types', [])])}
             Features: {', '.join([a.get('name', a) if isinstance(a, dict) else a for a in restaurant.get('features', [])])}
-            Description: {restaurant.get('description', '')[:200]}
+            Description: {restaurant.get('description', '')}
             """
             restaurants_data.append(restaurant_info)
 
@@ -664,7 +811,7 @@ def rerank_restaurant_mongo_results(parsed_results, trip_data_str, openai_api_ke
         
         # Get the best hotel from LLM
         chain = prompt | llm
-        print("Calling LLM API for hotel ranking...")
+        print("Calling LLM API for restaurant ranking...")
         response = chain.invoke({
             "num_recs": num_recs,
             "trip_data_str": trip_data_str,
@@ -715,6 +862,133 @@ def rerank_restaurant_mongo_results(parsed_results, trip_data_str, openai_api_ke
                 if restaurant.get('name') == best_restaurant_name:
                     selected_restaurant = parsed_results.pop(i)
                     parsed_results.insert(0, selected_restaurant)
+                    break
+    
+    except Exception as e:
+        # Catch and log all other exceptions
+        print(f"ERROR in LLM reranking: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+
+def rerank_activity_mongo_results(parsed_results, trip_data_str, openai_api_key, num_recs=4):
+    # Rerank activity results using OpenAI if API key is available
+
+    if not openai_api_key:
+        print("No OpenAI API key provided. Skipping LLM reranking.")
+        return parsed_results
+
+    try:
+        llm_model = "gpt-4o-mini"
+        llm = ChatOpenAI(model=llm_model, openai_api_key=openai_api_key)
+        print(f"Successfully initialized LLM model: {llm_model}")
+        
+        # Create a prompt template for activities characteristics.
+        rerank_template = """
+        Based on the following trip information and list of activities, select the {num_recs} best activities that match the trip requirements.
+        Take into account all of the trip information below and how the activity matches the trip requirements. Don't return activities
+        at a higher price level than the trip. If there is truly an exception, only return one activity at a price level higher than the trip.
+        
+        Trip Information:
+        {trip_data_str}
+        
+        Activities:
+        {activities_data}
+        
+        Return your response as a JSON list of objects where each object has two fields:
+        1. "activity_title": The exact title of the best matching activity
+        2. "explanation": A short max 7 word quirky explanation of why this activity was selected for this trip
+        
+        Format your response as valid JSON only. Do not include any explanations outside the JSON, do not include ```json or ```.
+        Example: [[
+            {{"activity_title": "Nature Hike", "explanation": "Perfect break in beautiful nature"}},
+            {{"activity_title": "Historical Tour", "explanation": "Because you're a history buff."}},
+        ]]
+        """
+        
+        prompt = ChatPromptTemplate.from_template(rerank_template)
+        
+        # Prepare all activity data for the prompt
+        activities_data = []
+        activity_titles = []  # Keep track of activity titles for debugging
+        for i, activity in enumerate(parsed_results, 1):
+            activity_title = activity.get('title', 'Unknown')
+            activity_titles.append(activity_title)
+            rating = "N/A"
+            if 'reviews' in activity and 'combinedAverageRating' in activity['reviews']:
+                rating = f"{activity['reviews']['combinedAverageRating']}/5"
+            price_level = "N/A"
+            if 'pricing' in activity and 'summary' in activity['pricing'] and 'fromPrice' in activity['pricing']['summary']:
+                price_level = activity['pricing']['summary']['fromPrice']
+            tags_description = "N/A"
+            if 'tags_str' in activity:
+                tags_description = ', '.join([t for t in activity.get('tags_str', [])])
+            activity_info = f"""
+            Activity {i}:
+            Title: {activity_title}
+            Rating: {rating}
+            Price Level USD: {price_level}
+            Tags: {tags_description}
+            Description: {activity.get('description', '')}
+            """
+            activities_data.append(activity_info)
+
+        print(f"Prepared {len(activities_data)} activities for llm reranking")
+        
+        # Get the best hotel from LLM
+        chain = prompt | llm
+        print("Calling LLM API for activity ranking...")
+        response = chain.invoke({
+            "num_recs": num_recs,
+            "trip_data_str": trip_data_str,
+            "activities_data": "\n".join(activities_data)
+        })
+        print("LLM API call completed")
+        
+        try:
+            # Parse the JSON response
+            response_content = response.content.strip()
+            print(f"\nLLM Response: {response_content}")
+            response_data = json.loads(response_content)
+            best_activities = {
+                r.get("activity_title", "").strip().lower(): r.get("explanation", "")
+                for r in response_data
+            }
+            print(f"Best activities: {best_activities}")
+            
+            # Find the selected restaurant and move it to the top.
+            activities_found = 0
+            for i, activity in enumerate(parsed_results):
+                normalized_activity_str = activity.get('title').strip().lower()
+                if normalized_activity_str in best_activities:
+                    print(f"Found matching activity at index {i}")
+                    activities_found += 1
+                    # Move the selected activity to the top
+                    selected_activity = parsed_results.pop(i)
+                    # Store the explanation at the top level where we can access it later
+                    selected_activity["llm_explanation"] = best_activities[normalized_activity_str]  # Add the explanation
+                    print(f"Added llm explanation to activity: {selected_activity['llm_explanation']}")
+                    parsed_results.insert(0, selected_activity)
+                    best_activities.pop(normalized_activity_str)
+                if activities_found >= num_recs:
+                    break
+        
+            if activities_found < num_recs:
+                print(f"WARNING: Could not find all recommended activities {best_activities}")
+            
+            return parsed_results
+    
+        except (json.JSONDecodeError, KeyError) as e:
+            # Fallback to simpler parsing if JSON parsing fails
+            print(f"Error parsing LLM response as JSON: {e}")
+            response_content = response.content.strip()
+            best_activity_title = response_content
+            explanation = ""
+            
+            # Find the selected restaurant and move it to the top (without explanation)
+            for i, restaurant in enumerate(parsed_results):
+                if activity.get('title') == best_activity_title:
+                    selected_activity = parsed_results.pop(i)
+                    parsed_results.insert(0, selected_activity)
                     break
     
     except Exception as e:
@@ -775,6 +1049,10 @@ def main():
     elif args.type == 'create_restaurant_search_index':
         restaurants_collection = db["tripadvisor-restaurant_review"]
         create_trip_advisor_restaurant_search_index(restaurants_collection)
+    
+    elif args.type == 'create_activity_search_index':
+        activities_collection = db["viator-products"]
+        create_viator_activity_search_index(activities_collection)
 
     elif args.type == 'search_mongo_hotels':
         trip_data = load_trip(args.trip_id, db)
