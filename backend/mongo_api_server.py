@@ -69,7 +69,7 @@ database_name = os.getenv("MONGODB_DATABASE")
 
 # Create Flask app
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+# CORS(app)  # Enable CORS for all routes
 
 # Construct MongoDB URI
 uri = f"mongodb+srv://{username}:{password}@{cluster}/?retryWrites=true&w=majority&appName=Viammo-Cluster-alpha"
