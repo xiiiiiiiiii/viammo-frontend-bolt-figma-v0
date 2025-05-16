@@ -103,7 +103,7 @@ def google_login_oauth2callback(session, request):
     state = request.args.get('state')
 
     # Get the base URL and replace port 5001 with 8080 to account for proxy redirect.
-    redirect_uri = request.base_url.replace(':5001', ':8080')
+    redirect_uri = REDIRECT_URI # request.base_url.replace(':5001', ':8080')
     print(f"redirect_uri: {redirect_uri}")
     
     #pull the authorization response
