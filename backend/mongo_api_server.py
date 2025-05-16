@@ -19,17 +19,15 @@ Endpoints:
 import os
 import sys
 import argparse
-import re
-from pathlib import Path
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, Response
-from flask_cors import CORS
+from flask import Flask, jsonify, request, Response, session, redirect, stream_with_context
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 from bson.json_util import dumps, loads
-from datetime import datetime
-import json  # Move json import here
-import requests  # Import requests for API calls
+import json 
+import traceback
+
+# from flask_cors import CORS
 
 from search_utils import (
     extract_search_trip_data_str, extract_generic_trip_search_keywords_no_llm,
@@ -40,8 +38,12 @@ from search_utils import (
     rerank_activity_mongo_results, convert_mongo_viator_product_results_to_cal_item
 )
 
+import scan_email_utils
+
 # Load environment variables from .env file
 load_dotenv()
+
+FLASK_KEY = os.getenv('FLASK_KEY')
 
 # Check required environment variables
 required_env_vars = [
@@ -69,7 +71,12 @@ database_name = os.getenv("MONGODB_DATABASE")
 
 # Create Flask app
 app = Flask(__name__)
+#setting app secret key
+app.secret_key = FLASK_KEY
 # CORS(app)  # Enable CORS for all routes
+
+# Setting OAUTHLIB insecure transport to 1 (needed for development with self-signed certificates)
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 # Construct MongoDB URI
 uri = f"mongodb+srv://{username}:{password}@{cluster}/?retryWrites=true&w=majority&appName=Viammo-Cluster-alpha"
@@ -218,6 +225,62 @@ def get_mock_calendar():
             "end_time": "17:00"
         }
     ]
+
+@app.route("/api/google_login")
+def google_login():
+    try:
+        authorization_url = scan_email_utils.google_login()
+        return jsonify({"authorization_url": authorization_url}), 200
+    except Exception as e:
+        print(traceback.format_exc())
+        return jsonify({"error": str(e), "stack_trace": traceback.format_exc()}), 500
+
+# def google_login_oauth2callback(session, request):
+@app.route("/api/google_login/oauth2callback")
+def google_login_oauth2callback():
+    try:
+        logged_in_redirect_response = scan_email_utils.google_login_oauth2callback(session, request)
+        return redirect(logged_in_redirect_response)
+    except Exception as e:
+        print(traceback.format_exc())
+        return jsonify({"error": str(e), "stack_trace": traceback.format_exc()}), 500
+
+@app.route("/api/google_login/logged_in_scan_email")
+def google_logged_in_scan_email():
+    def generate():
+        def progress_callback(message, progress):
+            print(message)
+            yield jsonify({
+                "status": "progress",
+                "message": message,
+                "progress": progress
+            }).data  # Convert to bytes
+        
+        try:
+            yield from progress_callback("Starting email scan...", 0)
+            trip_insights, trip_jsons = yield from scan_email_utils.scan_email(progress_callback)
+            
+            yield jsonify({
+                "status": "complete",
+                "trip_insights": trip_insights,
+                "trip_jsons": trip_jsons,
+            }).data
+
+        except Exception as e:
+            yield jsonify({
+                "status": "error",
+                "message": str(e),
+                "stack_trace": traceback.format_exc()
+            }).data
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+        }
+    )
 
 @app.route('/api/trips', methods=['GET'])
 def get_trips():
@@ -821,7 +884,11 @@ if __name__ == '__main__':
                         print(f"  - {item.get('type')}: {item.get('name')}, trip_id type: {trip_id_type}, value: {trip_id_val}")
             
             print(f"\n====== Starting API Server on port {port} ======")
-            app.run(host='0.0.0.0', port=port)
+            app.run(
+                host='0.0.0.0',
+                port=port,
+                debug=True
+            )
         except Exception as e:
             print(f"Error connecting to MongoDB: {e}")
             exit(1)

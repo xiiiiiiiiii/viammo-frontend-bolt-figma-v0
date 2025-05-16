@@ -14,6 +14,53 @@ export const Trips = (): JSX.Element => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<{ status: string; message: string } | null>(null);
+  const [isScanningEmails, setIsScanningEmails] = useState(false);
+  
+  const handleScanEmails = async () => {
+    try {
+      setIsScanningEmails(true);
+      setError(null);
+      
+      // First, initiate Google login
+      const { authorization_url } = await api.googleLogin();
+      
+      // Store the current path to redirect back after OAuth flow
+      localStorage.setItem('postLoginRedirect', window.location.pathname);
+      
+      // Redirect to Google OAuth
+      window.location.href = authorization_url;
+      
+    } catch (error) {
+      console.error('Error initiating email scan:', error);
+      setError('Failed to initiate email scan. Please try again.');
+      setIsScanningEmails(false);
+    }
+  };
+  
+  // Check if we're coming back from OAuth with a successful login
+  useEffect(() => {
+    const checkOAuthReturn = async () => {
+      const currentPath = window.location.pathname;
+      if (currentPath === '/google_login/logged_in_scan_email') {
+        try {
+          // Start the email scanning process
+          await api.google_logged_in_scan_email();
+          // Redirect back to the trips page after completion
+          const redirectPath = localStorage.getItem('postLoginRedirect') || '/';
+          localStorage.removeItem('postLoginRedirect');
+          navigate(redirectPath);
+        } catch (error) {
+          console.error('Error during email scan:', error);
+          setError('Failed to scan emails. Please try again.');
+          navigate('/');
+        } finally {
+          setIsScanningEmails(false);
+        }
+      }
+    };
+    
+    checkOAuthReturn();
+  }, [navigate]);
 
   // Get trip context for state persistence
   const { setCurrentTripId, setCurrentTrip, setCalendarItems } = useTripContext();
@@ -201,12 +248,31 @@ export const Trips = (): JSX.Element => {
           )}
 
           {/* Create New Trip Button */}
-          <div className="py-8 px-6 max-w-md mx-auto">
+          <div className="py-8 px-6 max-w-md mx-auto space-y-4">
             <Button
               className="w-full flex items-center justify-center gap-2 bg-[#10D394] hover:bg-[#00C29A] text-white font-medium py-4 rounded-full shadow-md text-lg transition-all"
               onClick={handleCreateNewTrip}
             >
               Create New Trip
+            </Button>
+            
+            {/* Imagine Trip from Email Scan Button */}
+            <Button
+              className="w-full flex items-center justify-center gap-2 bg-[#10D394] hover:bg-[#00C29A] text-white font-medium py-4 rounded-full shadow-md text-lg transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+              onClick={handleScanEmails}
+              disabled={isScanningEmails}
+            >
+              {isScanningEmails ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Scanning Emails...
+                </>
+              ) : (
+                'Imagine Trip from Email Scan'
+              )}
             </Button>
           </div>
         </div>

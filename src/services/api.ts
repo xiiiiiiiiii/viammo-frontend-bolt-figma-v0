@@ -7,6 +7,54 @@ export const API_BASE_URL = '/api';
 
 // API functions for MongoDB operations
 export const api = {
+  // Google Login
+  googleLogin: async (): Promise<{ authorization_url: string }> => {
+    try {
+      console.log(`Initiating Google login...`);
+
+      const response = await axios.get(`${API_BASE_URL}/google_login`);
+
+      if (response.data && response.data.authorization_url) {
+        return {
+          authorization_url: response.data.authorization_url
+        };
+      }
+
+      throw new Error('Failed to initiate Google login');
+    } catch (error) {
+      console.error('Error initiating Google login:', error);
+      throw new Error('Failed to initiate Google login. Please try again.');
+    }
+  },
+
+  // Google Login
+  google_logged_in_scan_email: async (): Promise<{ authorization_url: string }> => {
+    try {
+      console.log(`Initiating Gmail scan...`);
+
+      const eventSource = new EventSource(`${API_BASE_URL}/google_login/logged_in_scan_email`);
+
+      eventSource.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          console.log(data.status, data.message, data.progress);
+    
+          if (data.status === 'complete' || data.status === 'error') {
+              eventSource.close();
+          }
+      };
+
+      eventSource.onerror = (error) => {
+          console.error("EventSource failed:", error);
+          eventSource.close();
+      };
+
+      throw new Error('Failed to scan Gmail.');
+    } catch (error) {
+      console.error('Error scanning Gmail:', error);
+      throw new Error('Failed to scan Gmail.');
+    }
+  },
+
   // Fetch all trips from MongoDB
   getTrips: async (): Promise<Trip[]> => {
     try {

@@ -11,4 +11,6 @@ dependencies = [
     "langchain-openai>=0.3.11",
     "pymongo",
     "python-dotenv",
+    "groq",
+    "langchain_openai",
 ]

@@ -23,7 +23,25 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
           rewrite: (path) => path
-        }
+        },
+        // '/api/google_login/oauth2callback': {
+        //   target: `http://${apiHost}:${apiPort}`,
+        //   secure: false,
+        //   rewrite: (path) => path,
+        //   // Optional: customize cookie handling if needed
+        //   configure: (proxy, options) => {
+        //     proxy.on('proxyRes', (proxyRes, req, res) => {
+        //       const cookies = proxyRes.headers['set-cookie'];
+        //       if (cookies) {
+        //         proxyRes.headers['set-cookie'] = cookies.map(cookie =>
+        //           cookie
+        //             .replace(/;\s*Secure/i, '')
+        //             .replace(/domain=[^;]+/i, 'domain=localhost')
+        //         );
+        //       }
+        //     });
+        //   }
+        // },
       }
     },
     css: {
