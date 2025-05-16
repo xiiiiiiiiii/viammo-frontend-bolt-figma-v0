@@ -4,3 +4,8 @@ langchain>=0.3.21
 langchain-openai>=0.3.11
 pymongo
 python-dotenv
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+groq
+langchain_openai
