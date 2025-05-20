@@ -187,7 +187,7 @@ def scan_email(progress_callback):
         HOTEL_RESERVATION_SEARCH_QUERY,
         progress_callback,
         progress=5,
-        max_results=5000
+        max_results=500
     )
     if not messages or len(messages) == 0:
         raise Exception("No emails found")
