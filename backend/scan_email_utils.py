@@ -18,6 +18,7 @@ from google.auth.transport import requests as google_auth_requests
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from googleapiclient.http import HttpError
+from email.message import EmailMessage
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -36,14 +37,15 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-    "openid"
+    "openid",
+    "https://www.googleapis.com/auth/gmail.send"
 ]
 CLIENT_ID = os.getenv('GOOGLE_CLOUD_GMAIL_CLIENT_ID')
 CLIENT_SECRET = os.getenv('GOOGLE_CLOUD_GMAIL_CLIENT_SECRET')
 FLASK_KEY = os.getenv('FLASK_KEY')
 REDIRECT_URI = os.getenv('REDIRECT_URI')
 LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
-MAX_CONCURRENCY = 20
+MAX_CONCURRENCY = 50
 NUM_TRIPS_METADATA_TO_GENERATE = 5
 
 def load_jsonl(file_path):
@@ -174,7 +176,7 @@ def scan_email(progress_callback):
     # # Retrieve User data if needed:
     # name = session["id_info"]["name"]
     # picture = session["id_info"]["picture"]
-    # email = session["id_info"]["email"]
+    email = session["id_info"]["email"]
 
     # Retrieve credentials from session
     gmail_service = get_gmail_service_from_session(session)
@@ -195,29 +197,29 @@ def scan_email(progress_callback):
 
     yield from progress_callback("Getting metadata for emails...", 15)
     msg_ids = [message['id'] for message in messages]
-    email_metadatas = yield from get_email_metadatas_batch(msg_ids, progress_callback, progress=15)
+    # email_metadatas = yield from get_email_metadatas_batch(msg_ids, progress_callback, progress=15)
 
-    yield from progress_callback("Filtering emails based on reply to...", 20)
-    email_metadatas = [email_metadata for email_metadata in email_metadatas if "Unknown" in email_metadata['in_reply_to']]
-    yield from progress_callback(f"Filtered down to {len(email_metadatas)} by removing emails that are replies to another email in the same thread.", 20)
+    # yield from progress_callback("Filtering emails based on reply to...", 20)
+    # email_metadatas = [email_metadata for email_metadata in email_metadatas if "Unknown" in email_metadata['in_reply_to']]
+    # yield from progress_callback(f"Filtered down to {len(email_metadatas)} by removing emails that are replies to another email in the same thread.", 20)
     
 
-    yield from progress_callback("Filtering emails based on title...", 25)
-    prompts = {
-        email_metadata['id']: f"Here is metadata for an email, is it a hotel reservation confirmation? Just"
-                               "answer True or False and nothing else. Metadata: {email_metadata}"
-        for email_metadata in email_metadatas
-    }
-    batch_hotel_reservation_classification = yield from run_groq_inference_batch_with_pool(prompts, progress_callback, progress=30)
-    hotel_reservation_emails = [
-        email_metadata
-        for email_metadata in email_metadatas
-        if "True" == batch_hotel_reservation_classification.get(email_metadata['id'], 'False')
-    ]
-    yield from progress_callback(f"Filtered down to {len(hotel_reservation_emails)} based on title.", 35)
+    # yield from progress_callback("Filtering emails based on title...", 25)
+    # prompts = {
+    #     email_metadata['id']: f"Here is metadata for an email, is it a hotel reservation confirmation? Just"
+    #                            "answer True or False and nothing else. Metadata: {email_metadata}"
+    #     for email_metadata in email_metadatas
+    # }
+    # batch_hotel_reservation_classification = yield from run_groq_inference_batch_with_pool(prompts, progress_callback, progress=30)
+    # hotel_reservation_emails = [
+    #     email_metadata
+    #     for email_metadata in email_metadatas
+    #     if "True" == batch_hotel_reservation_classification.get(email_metadata['id'], 'False')
+    # ]
+    # yield from progress_callback(f"Filtered down to {len(hotel_reservation_emails)} based on title.", 35)
 
     yield from progress_callback("Getting full content of emails...", 40)
-    msg_ids = [message['id'] for message in hotel_reservation_emails]
+    # msg_ids = [message['id'] for message in hotel_reservation_emails]
     full_hotel_reservation_emails = yield from get_full_email_batch(msg_ids, progress_callback, progress=40)
 
     yield from progress_callback("Filtering emails based on body...", 45)
@@ -279,9 +281,39 @@ def scan_email(progress_callback):
         print("\n=== Generated Trip Metadata ===\n")
         print(json.dumps(trip_jsons, indent=4))
         print("\n=============================\n")
+    
+    # Send trip insights by email
+    send_trip_insights_by_email(gmail_service, email, trip_insights, trip_jsons)
 
     return trip_insights, trip_jsons
 
+def send_trip_insights_by_email(service, to_from_email, trip_insights, trip_jsons):
+    """Send trip insights by email."""
+    trip_jsons = json.dumps(trip_jsons, indent=4)
+
+    # Create the email
+    message = EmailMessage()
+    message['To'] = to_from_email
+    message['From'] = 'me'
+    message['Subject'] = 'Trip Insights and Recommendations'
+    message.set_content(f"""
+    Trip Insights:
+    {trip_insights}
+
+    Trip JSONs:
+    {trip_jsons}
+    """)
+
+    # Encode message
+    encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+    # Create the message resource
+    create_message = {'raw': encoded_message}
+
+    # Send the email
+    sent_message = service.users().messages().send(userId="me", body=create_message).execute()
+    print(f"Message Id: {sent_message['id']}")
+    
 
 def search_emails(service, query, progress_callback, progress=5, max_results=500):
     """Search for emails matching the query.
@@ -335,7 +367,7 @@ def search_emails(service, query, progress_callback, progress=5, max_results=500
         yield from progress_callback(f"An error occurred: {error}\nstack_trace: {traceback.format_exc()}", progress)
         return []
 
-def get_email_metadatas_batch(msg_ids, progress_callback, progress=15):
+def get_email_metadatas_batch(msg_ids, progress_callback, progress=15, max_workers=MAX_CONCURRENCY):
     """Get email metadata for multiple message IDs in a batch request."""
     results = []
     results_lock = Lock()
@@ -378,7 +410,7 @@ def get_email_metadatas_batch(msg_ids, progress_callback, progress=15):
             with results_lock:
                 results.append(email_metadata)
                 fetched_count = len(results)
-                if fetched_count % 10 == 0:
+                if fetched_count % max_workers == 0:
                     yield from progress_callback(f"Fetched {fetched_count} / {len_emails} email metadatas...", progress)
             
             return email_metadata
@@ -390,7 +422,7 @@ def get_email_metadatas_batch(msg_ids, progress_callback, progress=15):
     # results = [fetch_single_message(msg_id, idx) for idx, msg_id in enumerate(msg_ids)]
 
     # Create a thread pool with limited concurrency
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks to the executor
         len_emails = len(msg_ids)
         futures = {executor.submit(fetch_single_message, msg_id, idx, len_emails): msg_id for idx, msg_id in enumerate(msg_ids)}
@@ -445,7 +477,7 @@ def run_groq_inference_batch_with_pool(
             with results_lock:
                 results[prompt_id] = response
                 completed_count += 1
-                if completed_count % 10 == 0:
+                if completed_count % max_workers == 0:
                     yield from progress_callback(f"Completed {completed_count} / {total_prompts}", progress)
             return prompt_id, response
         except Exception as e:
@@ -475,6 +507,7 @@ def get_full_email_batch(
     msg_ids,
     progress_callback,
     progress=20,
+    max_workers=MAX_CONCURRENCY,
     ):
     """Get full email for multiple message IDs in a batch request."""
     results = []
@@ -545,7 +578,7 @@ def get_full_email_batch(
             with results_lock:
                 results.append(email_metadata)
                 fetched_count = len(results)            
-                if fetched_count % 10 == 0:
+                if fetched_count % max_workers == 0:
                     yield from progress_callback(f"Fetched {fetched_count} / {len_emails} full email contents...", progress)
             
             return email_metadata
@@ -557,7 +590,7 @@ def get_full_email_batch(
     # results = [fetch_single_full_message(msg_id, idx) for idx, msg_id in enumerate(msg_ids[:10])]
 
     # Create a thread pool with limited concurrency
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks to the executor
         len_emails = len(msg_ids)
         futures = {executor.submit(fetch_single_full_message, msg_id, idx, len_emails): msg_id for idx, msg_id in enumerate(msg_ids)}

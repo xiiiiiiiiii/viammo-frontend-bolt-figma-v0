@@ -887,8 +887,9 @@ if __name__ == '__main__':
             app.run(
                 host='0.0.0.0',
                 port=port,
-                debug=True
+                # debug=True
             )
         except Exception as e:
             print(f"Error connecting to MongoDB: {e}")
             exit(1)
+
