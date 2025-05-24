@@ -1,5 +1,6 @@
 flask
 flask_cors
+flask_executor
 langchain>=0.3.21
 langchain-openai>=0.3.11
 pymongo

@@ -37,6 +37,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "flask" },
     { name = "flask-cors" },
+    { name = "flask-executor" },
     { name = "google-api-python-client" },
     { name = "google-auth-httplib2" },
     { name = "google-auth-oauthlib" },
@@ -51,6 +52,7 @@ dependencies = [
 requires-dist = [
     { name = "flask" },
     { name = "flask-cors" },
+    { name = "flask-executor" },
     { name = "google-api-python-client" },
     { name = "google-auth-httplib2" },
     { name = "google-auth-oauthlib" },
@@ -248,6 +250,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/32/d8/667bd90d1ee41c96e938bafe81052494e70b7abd9498c4a0215c103b9667/flask_cors-5.0.1.tar.gz", hash = "sha256:6ccb38d16d6b72bbc156c1c3f192bc435bfcc3c2bc864b2df1eb9b2d97b2403c", size = 11643 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/85/61/4aea5fb55be1b6f95e604627dc6c50c47d693e39cab2ac086ee0155a0abd/flask_cors-5.0.1-py3-none-any.whl", hash = "sha256:fa5cb364ead54bbf401a26dbf03030c6b18fb2fcaf70408096a572b409586b0c", size = 11296 },
+]
+
+[[package]]
+name = "flask-executor"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "flask" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/68/9d/48200aa3211148e1a250882e68be5a97a6a6995ff6d63aa1f9b32b5c6e35/Flask-Executor-1.0.0.tar.gz", hash = "sha256:4bc113def5d9f1c7ff272ff7ba09f843468eab80469bdbd21625a111b2c8ae7b", size = 8511 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ff/26/61bc021698eaaf8dc58861f3f88feabbe2bd2fb1bcec6402dd2b9a59cb96/Flask_Executor-1.0.0-py3-none-any.whl", hash = "sha256:c044dc6393326a83351e69e4ddf3686270abffeac2b599260cebf0ea5d1e93de", size = 9345 },
 ]
 
 [[package]]

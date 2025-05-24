@@ -20,7 +20,9 @@ import os
 import sys
 import argparse
 from dotenv import load_dotenv
+import uuid
 from flask import Flask, jsonify, request, Response, session, redirect, stream_with_context
+from flask_executor import Executor
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 from bson.json_util import dumps, loads
@@ -44,6 +46,8 @@ import scan_email_utils
 load_dotenv()
 
 FLASK_KEY = os.getenv('FLASK_KEY')
+CLIENT_ID = os.getenv('GOOGLE_CLOUD_GMAIL_CLIENT_ID')
+LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
 
 # Check required environment variables
 required_env_vars = [
@@ -74,6 +78,8 @@ app = Flask(__name__)
 #setting app secret key
 app.secret_key = FLASK_KEY
 # CORS(app)  # Enable CORS for all routes
+executor = Executor(app)
+tasks = {}
 
 # Setting OAUTHLIB insecure transport to 1 (needed for development with self-signed certificates)
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
@@ -235,7 +241,6 @@ def google_login():
         print(traceback.format_exc())
         return jsonify({"error": str(e), "stack_trace": traceback.format_exc()}), 500
 
-# def google_login_oauth2callback(session, request):
 @app.route("/api/google_login/oauth2callback")
 def google_login_oauth2callback():
     try:
@@ -247,40 +252,119 @@ def google_login_oauth2callback():
 
 @app.route("/api/google_login/logged_in_scan_email")
 def google_logged_in_scan_email():
-    def generate():
-        def progress_callback(message, progress):
-            print(message)
-            yield jsonify({
-                "status": "progress",
-                "message": message,
-                "progress": progress
-            }).data  # Convert to bytes
+
+    task_id = uuid.uuid4().hex
+    _google_logged_in_scan_email_status(task_id) # Check user logged in.
+
+    def progress_callback(message, progress, status="progress", recommendations=None, trip_insights=None, emails=None):
+        print(message)
+        if task_id not in tasks:
+            tasks[task_id] = {}
+        tasks[task_id]["status"] = status
+        tasks[task_id]["message"] = message
+        tasks[task_id]["progress"] = progress
+        if emails is not None:
+            tasks[task_id]["emails"] = emails
+        if trip_insights is not None:
+            tasks[task_id]["trip_insights"] = trip_insights
+        if recommendations is not None:
+            tasks[task_id]["recommendations"] = recommendations
+
+    executor.submit(scan_email_utils.scan_email, session['credentials'], session["id_info"], progress_callback)
+
+    task_progress_str_url = LOGGED_IN_REDIRECT_URI.replace('logged_in_scan_email', f'logged_in_scan_email_status_str/{task_id}')
+
+    return redirect(task_progress_str_url)
+    # return jsonify({'task_id': task_id})
+
+def _google_logged_in_scan_email_status(task_id):
+    # Verify user token still loged into gmail.
+    service = scan_email_utils.get_gmail_service_from_session(session['credentials'])
+    profile = service.users().getProfile(userId='me').execute()
+    email = profile["emailAddress"]
+    if email is None or len(email) == 0:
+        raise Exception("User not logged into gmail.")
+    
+    # return task.
+    return tasks.get(task_id, None)
+
+@app.route("/api/google_login/logged_in_scan_email_status/<task_id>")
+def google_logged_in_scan_email_status(task_id):
+    try:
+        task = _google_logged_in_scan_email_status(task_id)
+        if task is None or len(task) == 0:
+            return jsonify({"error": "Invalid task ID"}), 404
         
-        try:
-            yield from progress_callback("Starting email scan...", 0)
-            trip_insights, trip_jsons = yield from scan_email_utils.scan_email(progress_callback)
-            
-            yield jsonify({
-                "status": "complete",
-                "trip_insights": trip_insights,
-                "trip_jsons": trip_jsons,
-            }).data
-
-        except Exception as e:
-            yield jsonify({
-                "status": "error",
-                "message": str(e),
-                "stack_trace": traceback.format_exc()
-            }).data
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
+        # Strip out large objects for json response.
+        task = {
+            "status": task.get("status", None),
+            "message": task.get("message", None),
+            "progress": task.get("progress", None),
         }
-    )
+            
+        return jsonify(task)
+    except Exception as e:
+        stacktrace = traceback.format_exc()
+        print(f"Stacktrace: {stacktrace}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/google_login/logged_in_scan_email_status_str/<task_id>")
+def google_logged_in_scan_email_status_str(task_id):
+    try:
+        task = _google_logged_in_scan_email_status(task_id)
+        if task is None or len(task) == 0:
+            return "Invalid task ID", 404
+        
+        out = ""
+        out += "<br>REFRESH PAGE TO GET LATEST STATUS<br>"
+        out += "<br>=== Status =======<br>"
+        out += task.get("status", "unknown")
+        out += "<br>===================<br>"
+
+        out += "<br>=== Message =======<br>"
+        out += task.get("message", "unknown")
+        out += "<br>===================<br>"
+
+        out += "<br>=== Progress =======<br>" 
+        out += str(task.get("progress", "unknown"))
+        out += "<br>===================<br>"
+
+        trip_insights = task.get("trip_insights", None)
+        if trip_insights:
+            out += "<br>=== Generated Trip Metadata ===<br>"
+            out += trip_insights.replace('\n', '<br>')
+            out += "<br>===============================<br>"
+        
+        recommendations = task.get("recommendations", None)
+        if recommendations:
+            out += "<br>=== Generated Recommendations ===<br>"
+            out += json.dumps(recommendations, indent=4).replace('\n', '<br>')
+            out += "<br>=================================<br>"
+        
+        emails = task.get("emails", None)
+        if emails:
+            out += "<br>=== Emails ===<br>"
+            for email_data in emails:
+                out += f"{email_data['subject']}<br>"
+                out += f"   Id: {email_data['id']}<br>"
+                out += f"   From: {email_data['sender']}<br>"
+                out += f"   Date: {email_data['date']}<br>"
+                out += f"   To: {email_data['recipient']}<br>"
+                out += f"   Reply-To: {email_data['reply_to']}<br>"
+                out += f"   CC: {email_data['cc']}<br>"
+                out += f"   BCC: {email_data['bcc']}<br>"
+                out += f"   In-Reply-To: {email_data['in_reply_to']}<br>"
+                key_insights = email_data.get('key_insights', 'N/A').replace('\n', '<br>')
+                out += f"   Key Insights: {key_insights}<br>"
+                out += "-" * 80
+                out += "<br>"
+            out += "<br>=============================<br>"
+        
+        return out
+    except Exception as e:
+        stacktrace = traceback.format_exc()
+        print(f"Stacktrace: {stacktrace}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/trips', methods=['GET'])
 def get_trips():

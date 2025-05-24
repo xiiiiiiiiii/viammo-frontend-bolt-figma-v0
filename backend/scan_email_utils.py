@@ -1,7 +1,3 @@
-from flask import Flask
-from flask import request, session, redirect
-# from flask_cors import CORS
-
 import os
 import json
 import traceback
@@ -38,14 +34,14 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
     "openid",
-    "https://www.googleapis.com/auth/gmail.send"
 ]
 CLIENT_ID = os.getenv('GOOGLE_CLOUD_GMAIL_CLIENT_ID')
 CLIENT_SECRET = os.getenv('GOOGLE_CLOUD_GMAIL_CLIENT_SECRET')
 FLASK_KEY = os.getenv('FLASK_KEY')
 REDIRECT_URI = os.getenv('REDIRECT_URI')
 LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
-MAX_CONCURRENCY = 50
+MAX_EMAIL_CONCURRENCY = 20
+MAX_CONCURRENCY = 25
 NUM_TRIPS_METADATA_TO_GENERATE = 5
 
 def load_jsonl(file_path):
@@ -55,17 +51,6 @@ def load_jsonl(file_path):
 hotel_reservation_search_keywords = load_jsonl('hotel_reservation_search_keywords.jsonl')
 hotel_reservation_search_keywords = [f'"{keyword}"' for keyword in hotel_reservation_search_keywords]
 HOTEL_RESERVATION_SEARCH_QUERY = ' OR '.join(hotel_reservation_search_keywords)
-
-app = Flask(__name__)
-#setting app secret key
-app.secret_key = FLASK_KEY
-
-# # Enable CORS for all routes
-# CORS(app)
-
-# FOR NON_PROD ONLY! Setting OAUTHLIB insecure transport to 1 (needed for development with self-signed certificates)
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-
 
 
 def google_login():
@@ -92,7 +77,7 @@ def google_login():
         flow.authorization_url(
             access_type="offline",
             prompt="select_account",
-            include_granted_scopes="true"
+            # include_granted_scopes="true"
         )
     )
 
@@ -144,9 +129,9 @@ def google_login_oauth2callback(session, request):
     
     #verify token, while also retrieving information about the user
     id_info = id_token.verify_oauth2_token(
-        id_token=credentials._id_token
-        ,request=google_auth_requests.Request()
-        ,audience=CLIENT_ID
+        id_token=credentials._id_token,
+        request=google_auth_requests.Request(),
+        audience=CLIENT_ID
     )
     
     # Set the user information to an element of the session.
@@ -159,84 +144,68 @@ def google_login_oauth2callback(session, request):
 
     return logged_in_redirect_response
 
-def get_gmail_service_from_session(session):
+def get_gmail_service_from_session(credentials_dict):
     """Get authenticated Gmail service."""
-
-    # Retrieve credentials from session
-    if 'credentials' not in session:
-        raise Exception("No credentials found in session. Please try logging in again.")
-    
     # Rebuild credentials object and build Gmail service
-    credentials = Credentials(**session['credentials'])
+    credentials = Credentials(**credentials_dict)
     gmail_service = build('gmail', 'v1', credentials=credentials)
-
     return gmail_service
 
-def scan_email(progress_callback):
-    # # Retrieve User data if needed:
-    # name = session["id_info"]["name"]
-    # picture = session["id_info"]["picture"]
-    email = session["id_info"]["email"]
+def increment_progress(progress, increment=10):
+    progress = min(100, progress + increment)
+    return progress
+
+def scan_email(credentials_dict, id_info, progress_callback):
+    progress = 0
+    # Retrieve User data if needed:
+    # name = id_info["name"]
+    # picture = id_info["picture"]
+    email = id_info["email"]
 
     # Retrieve credentials from session
-    gmail_service = get_gmail_service_from_session(session)
+    gmail_service = get_gmail_service_from_session(credentials_dict)
 
-    yield from progress_callback("Searching for emails...", 5)
-    messages = yield from search_emails(
+    progress = increment_progress(progress)
+    progress_callback("Searching for emails...", progress)
+    messages = search_emails(
         gmail_service,
         HOTEL_RESERVATION_SEARCH_QUERY,
         progress_callback,
-        progress=5,
-        max_results=1000
+        progress=progress,
+        max_results=500
     )
     if not messages or len(messages) == 0:
         raise Exception("No emails found")
     
     email_count = len(messages)
-    yield from progress_callback(f"Found {email_count} emails", 10)
+    progress_callback(f"Found {email_count} emails", progress)
 
-    yield from progress_callback("Getting metadata for emails...", 15)
+    progress = increment_progress(progress)
+    progress_callback("Getting full content of emails...", progress)
     msg_ids = [message['id'] for message in messages]
-    # email_metadatas = yield from get_email_metadatas_batch(msg_ids, progress_callback, progress=15)
+    full_hotel_reservation_emails = get_full_email_batch(msg_ids, credentials_dict, progress_callback, progress=progress)
 
-    # yield from progress_callback("Filtering emails based on reply to...", 20)
-    # email_metadatas = [email_metadata for email_metadata in email_metadatas if "Unknown" in email_metadata['in_reply_to']]
-    # yield from progress_callback(f"Filtered down to {len(email_metadatas)} by removing emails that are replies to another email in the same thread.", 20)
-    
-
-    # yield from progress_callback("Filtering emails based on title...", 25)
-    # prompts = {
-    #     email_metadata['id']: f"Here is metadata for an email, is it a hotel reservation confirmation? Just"
-    #                            "answer True or False and nothing else. Metadata: {email_metadata}"
-    #     for email_metadata in email_metadatas
-    # }
-    # batch_hotel_reservation_classification = yield from run_groq_inference_batch_with_pool(prompts, progress_callback, progress=30)
-    # hotel_reservation_emails = [
-    #     email_metadata
-    #     for email_metadata in email_metadatas
-    #     if "True" == batch_hotel_reservation_classification.get(email_metadata['id'], 'False')
-    # ]
-    # yield from progress_callback(f"Filtered down to {len(hotel_reservation_emails)} based on title.", 35)
-
-    yield from progress_callback("Getting full content of emails...", 40)
-    # msg_ids = [message['id'] for message in hotel_reservation_emails]
-    full_hotel_reservation_emails = yield from get_full_email_batch(msg_ids, progress_callback, progress=40)
-
-    yield from progress_callback("Filtering emails based on body...", 45)
+    progress = increment_progress(progress)
+    progress_callback("Checking email body to keep only hotel reservation emails...", progress)
     prompts = {
         email_metadata['id']: f"Here is data for an email, is it a hotel reservation confirmation? Make sure to only keep hotel reservations (and filter out restaurant reservations and other travel related emails). Just answer True or False and nothing else. Metadata: {email_metadata}"
         for email_metadata in full_hotel_reservation_emails
     }
     # batch_hotel_reservation_classification_full_email = batch_llm_calls(prompts)
-    batch_hotel_reservation_classification_full_email = yield from run_groq_inference_batch_with_pool(prompts, progress_callback, progress=45)
+    batch_hotel_reservation_classification_full_email = run_groq_inference_batch_with_pool(prompts, progress_callback, progress=45)
     body_checked_filtered_hotel_reservation_emails = [
         email_metadata
         for email_metadata in full_hotel_reservation_emails
         if "True" == batch_hotel_reservation_classification_full_email.get(email_metadata['id'], 'False')
     ]
-    yield from progress_callback(f"Filtered down to {len(body_checked_filtered_hotel_reservation_emails)} based on body.", 50)
+    progress_callback(
+        f"Filtered down to {len(body_checked_filtered_hotel_reservation_emails)} based on body.",
+        progress,
+        emails=body_checked_filtered_hotel_reservation_emails
+    )
 
-    yield from progress_callback(f"Getting key insights from each email...", 55)
+    progress = increment_progress(progress)
+    progress_callback(f"Getting key insights from each email...", progress)
     prompts = {
         email_metadata['id']: f""""
         Here is data for a hotel reservation email. Please extract key insights from the email:
@@ -257,7 +226,7 @@ def scan_email(progress_callback):
         """
         for email_metadata in body_checked_filtered_hotel_reservation_emails
     }
-    batch_hotel_reservation_key_insights = yield from run_groq_inference_batch_with_pool(prompts, progress_callback, progress=55)
+    batch_hotel_reservation_key_insights = run_groq_inference_batch_with_pool(prompts, progress_callback, progress=55)
     hotel_reservation_key_insights = [
         {
             **email_metadata,
@@ -265,27 +234,39 @@ def scan_email(progress_callback):
         }
         for email_metadata in body_checked_filtered_hotel_reservation_emails
     ]
-    yield from progress_callback(f"Completed getting key insights from each email...", 60)
+    progress_callback(
+        f"Completed getting key insights from each email...",
+        progress,
+        emails=hotel_reservation_key_insights
+    )
 
-    yield from progress_callback(f"Generating insights from all emails...", 75)
-    trip_insights = yield from generate_trip_insights(hotel_reservation_key_insights, os.getenv("OPENAI_API_KEY"), progress_callback, progress=80, existing_trip_insights = "")
-    yield from progress_callback(f"Completed generating insights from all emails...", 85)
-    print(f"\ntrip_insights:\n{trip_insights}\n")
+    progress = increment_progress(progress)
+    progress_callback(f"Generating insights from all emails...", progress)
+    trip_insights = generate_trip_insights(hotel_reservation_key_insights, os.getenv("OPENAI_API_KEY"), progress_callback, progress=progress, existing_trip_insights = "")
+    progress_callback(
+        f"Completed generating insights from all emails...",
+        progress,
+        emails=hotel_reservation_key_insights,
+        trip_insights=trip_insights
+    )
 
-    yield from progress_callback(f"Generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip metadatas...", 95)    
+    progress = increment_progress(progress)
+    progress_callback(f"Generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip metadatas...", progress)    
     # hotel_reservation_key_insights # If too much data for context window, just send summarized trip_insights, works pretty well.
-    trip_jsons = yield from generate_trips_metadatas([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, os.getenv("OPENAI_API_KEY"), progress_callback, progress=100)
-    yield from progress_callback(f"Completed generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip metadatas...", 100)
-    # Pretty print the trip JSON data
-    if trip_jsons:
-        print("\n=== Generated Trip Metadata ===\n")
-        print(json.dumps(trip_jsons, indent=4))
-        print("\n=============================\n")
-    
-    # Send trip insights by email
-    send_trip_insights_by_email(gmail_service, email, trip_insights, trip_jsons)
+    trip_jsons = generate_trips_metadatas([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, os.getenv("OPENAI_API_KEY"), progress_callback, progress=progress)
 
-    return trip_insights, trip_jsons
+    progress = 100
+    progress_callback(
+        message = f"Completed generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip metadatas...",
+        progress=progress,
+        status="completed",
+        emails=hotel_reservation_key_insights,
+        trip_insights=trip_insights,
+        recommendations=trip_jsons
+    )
+    
+    # # Send trip insights by email
+    # send_trip_insights_by_email(gmail_service, email, trip_insights, trip_jsons)
 
 def send_trip_insights_by_email(service, to_from_email, trip_insights, trip_jsons):
     """Send trip insights by email."""
@@ -326,7 +307,7 @@ def search_emails(service, query, progress_callback, progress=5, max_results=500
     Returns:
         List of messages that match the criteria
     """
-    yield from progress_callback(f"search_emails...", progress)
+    progress_callback(f"search_emails...", progress)
     try:
         # Initialize empty list for messages and nextPageToken
         messages = []
@@ -349,11 +330,11 @@ def search_emails(service, query, progress_callback, progress=5, max_results=500
                 
             # Add messages to our list
             messages.extend(page_messages)
-            yield from progress_callback(f"Retrieved {len(messages)} emails IDs of max {max_results}...", progress)
+            progress_callback(f"Retrieved {len(messages)} emails IDs of max {max_results}...", progress)
             
             # Check if we've reached the desired number of results
             if len(messages) >= max_results:
-                yield from progress_callback(f"Reached maximum of {max_results} emails", progress)
+                progress_callback(f"Reached maximum of {max_results} emails", progress)
                 break
                 
             # Get token for next page or exit if no more pages
@@ -364,10 +345,10 @@ def search_emails(service, query, progress_callback, progress=5, max_results=500
         return messages
         
     except Exception as error:
-        yield from progress_callback(f"An error occurred: {error}\nstack_trace: {traceback.format_exc()}", progress)
+        progress_callback(f"An error occurred: {error}\nstack_trace: {traceback.format_exc()}", progress)
         return []
 
-def get_email_metadatas_batch(msg_ids, progress_callback, progress=15, max_workers=MAX_CONCURRENCY):
+def get_email_metadatas_batch(msg_ids, credentials_dict, progress_callback, progress=15, max_workers=MAX_EMAIL_CONCURRENCY):
     """Get email metadata for multiple message IDs in a batch request."""
     results = []
     results_lock = Lock()
@@ -375,7 +356,7 @@ def get_email_metadatas_batch(msg_ids, progress_callback, progress=15, max_worke
     def fetch_single_message(msg_id, idx, len_emails):
         """Process a single message and return its metadata."""
         try:
-            service = get_gmail_service_from_session(session)
+            service = get_gmail_service_from_session(credentials_dict)
 
             response = service.users().messages().get(
                 userId='me',
@@ -411,12 +392,12 @@ def get_email_metadatas_batch(msg_ids, progress_callback, progress=15, max_worke
                 results.append(email_metadata)
                 fetched_count = len(results)
                 if fetched_count % max_workers == 0:
-                    yield from progress_callback(f"Fetched {fetched_count} / {len_emails} email metadatas...", progress)
+                    progress_callback(f"Fetched {fetched_count} / {len_emails} email metadatas...", progress)
             
             return email_metadata
         
         except HttpError as error:
-            yield from progress_callback(f"Error fetching message {msg_id}: {error}", progress)
+            progress_callback(f"Error fetching message {msg_id}: {error}", progress)
             return None
     
     # results = [fetch_single_message(msg_id, idx) for idx, msg_id in enumerate(msg_ids)]
@@ -432,9 +413,9 @@ def get_email_metadatas_batch(msg_ids, progress_callback, progress=15, max_worke
             msg_id = futures[future]
             try:
                 # This will re-raise any exceptions from the task
-                yield from future.result()
+                future.result()
             except Exception as exc:
-                yield from progress_callback(f"Message {msg_id} generated an exception: {exc}", progress)
+                progress_callback(f"Message {msg_id} generated an exception: {exc}", progress)
     
     return results
 
@@ -478,13 +459,13 @@ def run_groq_inference_batch_with_pool(
                 results[prompt_id] = response
                 completed_count += 1
                 if completed_count % max_workers == 0:
-                    yield from progress_callback(f"Completed {completed_count} / {total_prompts}", progress)
+                    progress_callback(f"Completed {completed_count} / {total_prompts}", progress)
             return prompt_id, response
         except Exception as e:
             with results_lock:
                 results[prompt_id] = f"ERROR: {str(e)}"
                 completed_count += 1
-                yield from progress_callback(f"Error processing prompt ID {prompt_id}: {e}. Completed {completed_count} / {total_prompts}.", progress)
+                progress_callback(f"Error processing prompt ID {prompt_id}: {e}. Completed {completed_count} / {total_prompts}.", progress)
             return prompt_id, f"ERROR: {str(e)}"
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -494,9 +475,9 @@ def run_groq_inference_batch_with_pool(
         for future in concurrent.futures.as_completed(future_to_prompt_id):
             prompt_id_completed = future_to_prompt_id[future]
             try:
-                yield from future.result()
+                future.result()
             except Exception as exc:
-                yield from progress_callback(f'Prompt ID {prompt_id_completed} generated an exception in future: {exc}', progress)
+                progress_callback(f'Prompt ID {prompt_id_completed} generated an exception in future: {exc}', progress)
                 with results_lock:
                     if prompt_id_completed not in results:
                          results[prompt_id_completed] = f"ERROR: {str(exc)}"
@@ -505,9 +486,10 @@ def run_groq_inference_batch_with_pool(
 
 def get_full_email_batch(
     msg_ids,
+    credentials_dict,
     progress_callback,
     progress=20,
-    max_workers=MAX_CONCURRENCY,
+    max_workers=MAX_EMAIL_CONCURRENCY,
     ):
     """Get full email for multiple message IDs in a batch request."""
     results = []
@@ -516,7 +498,7 @@ def get_full_email_batch(
     def fetch_single_full_message(msg_id, idx, len_emails):
         """Process a single message and return its metadata."""
         try:
-            gmail_service = get_gmail_service_from_session(session)
+            gmail_service = get_gmail_service_from_session(credentials_dict)
 
             response = gmail_service.users().messages().get(
                 userId='me',
@@ -579,12 +561,12 @@ def get_full_email_batch(
                 results.append(email_metadata)
                 fetched_count = len(results)            
                 if fetched_count % max_workers == 0:
-                    yield from progress_callback(f"Fetched {fetched_count} / {len_emails} full email contents...", progress)
+                    progress_callback(f"Fetched {fetched_count} / {len_emails} full email contents...", progress)
             
             return email_metadata
         
         except HttpError as error:
-            yield from progress_callback(f"Error fetching message {msg_id}: {error}", progress)
+            progress_callback(f"Error fetching message {msg_id}: {error}", progress)
             return None
     
     # results = [fetch_single_full_message(msg_id, idx) for idx, msg_id in enumerate(msg_ids[:10])]
@@ -600,9 +582,9 @@ def get_full_email_batch(
             msg_id = futures[future]
             try:
                 # This will re-raise any exceptions from the task
-                yield from future.result()
+                future.result()
             except Exception as exc:
-                yield from progress_callback(f"Message {msg_id} generated an exception: {exc}", progress)
+                progress_callback(f"Message {msg_id} generated an exception: {exc}", progress)
     
     return results
 
@@ -676,13 +658,13 @@ def generate_trip_insights(trip_message_datas, openai_api_key, progress_callback
         # Extract JSON from the response
         response_content = response.content
         if not response_content:
-            yield from progress_callback(f"LLM did not return a response to generate trip insights", progress)
+            progress_callback(f"LLM did not return a response to generate trip insights", progress)
             return None
         
         return response_content
             
     except ImportError:
-        yield from progress_callback(f"LangChain or OpenAI packages not installed.", progress)
+        progress_callback(f"LangChain or OpenAI packages not installed.", progress)
         return None
 
 def generate_trips_metadatas(trip_message_datas, trip_insights, num_trips, openai_api_key, progress_callback, progress=100) -> str:
@@ -764,7 +746,7 @@ def generate_trips_metadatas(trip_message_datas, trip_insights, num_trips, opena
         # Extract JSON from the response
         response_content = response.content
         if not response_content:
-            yield from progress_callback(f"LLM did not return a response to generate trip metadata", progress)
+            progress_callback(f"LLM did not return a response to generate trip metadata", progress)
             return None
         
         # Try to parse the response as JSON
@@ -773,9 +755,9 @@ def generate_trips_metadatas(trip_message_datas, trip_insights, num_trips, opena
             trip_jsons = json.loads(response_content)
             return trip_jsons
         except json.JSONDecodeError as e:
-            yield from progress_callback(f"Error parsing JSON response: {e} Raw response: {response_content}", progress)
+            progress_callback(f"Error parsing JSON response: {e} Raw response: {response_content}", progress)
             return None
             
     except ImportError:
-        yield from progress_callback(f"LangChain or OpenAI packages not installed.", progress)
+        progress_callback(f"LangChain or OpenAI packages not installed.", progress)
         return None
