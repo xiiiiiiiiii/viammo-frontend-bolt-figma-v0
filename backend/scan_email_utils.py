@@ -16,10 +16,10 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.http import HttpError
 from email.message import EmailMessage
 
+from openai import OpenAI
+
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-
-from groq import Groq
 
 from dotenv import load_dotenv
 
@@ -38,15 +38,31 @@ SCOPES = [
 CLIENT_ID = os.getenv('GOOGLE_CLOUD_GMAIL_CLIENT_ID')
 CLIENT_SECRET = os.getenv('GOOGLE_CLOUD_GMAIL_CLIENT_SECRET')
 FLASK_KEY = os.getenv('FLASK_KEY')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 REDIRECT_URI = os.getenv('REDIRECT_URI')
 LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
 MAX_EMAIL_CONCURRENCY = 20
-MAX_CONCURRENCY = 25
+MAX_AI_INFERENCE_CONCURRENCY = 100
+EMAILS_LIMIT = 5000
 NUM_TRIPS_METADATA_TO_GENERATE = 5
+HOTEL_RESERVATION_EMAILS_BATCH_SIZE = 20
 
 def load_jsonl(file_path):
     with open(file_path, 'r') as f:
         return [json.loads(line) for line in f]
+
+# def save_to_jsonl(file_path, a_list):
+#     # Create directory if it doesn't exist
+#     dirname = os.path.dirname(file_path)
+#     if len(dirname.strip()) > 0:
+#         os.makedirs(dirname, exist_ok=True)
+
+#     # Save to JSONL file
+#     with open(file_path, 'w') as f:
+#         for item in a_list:
+#             f.write(json.dumps(item) + '\n')
+
+#     print(f"Saved {len(a_list)} records to {file_path}")
 
 hotel_reservation_search_keywords = load_jsonl('hotel_reservation_search_keywords.jsonl')
 hotel_reservation_search_keywords = [f'"{keyword}"' for keyword in hotel_reservation_search_keywords]
@@ -166,13 +182,14 @@ def scan_email(credentials_dict, id_info, progress_callback):
     gmail_service = get_gmail_service_from_session(credentials_dict)
 
     progress = increment_progress(progress)
-    progress_callback("Searching for emails...", progress)
+    progress_callback("Searching for hotel reservation emails...", progress)
     messages = search_emails(
         gmail_service,
         HOTEL_RESERVATION_SEARCH_QUERY,
         progress_callback,
+        progress_main_message="Searching for hotel reservation emails...",
         progress=progress,
-        max_results=500
+        max_results=EMAILS_LIMIT
     )
     if not messages or len(messages) == 0:
         raise Exception("No emails found")
@@ -181,18 +198,34 @@ def scan_email(credentials_dict, id_info, progress_callback):
     progress_callback(f"Found {email_count} emails", progress)
 
     progress = increment_progress(progress)
-    progress_callback("Getting full content of emails...", progress)
+    progress_callback("Getting full content of hotel reservation emails...", progress)
+
     msg_ids = [message['id'] for message in messages]
-    full_hotel_reservation_emails = get_full_email_batch(msg_ids, credentials_dict, progress_callback, progress=progress)
+    full_hotel_reservation_emails = get_full_email_batch(
+        msg_ids,
+        credentials_dict,
+        progress_callback,
+        progress=progress,
+        progress_main_message="Getting full content of hotel reservation emails..."
+    )
 
     progress = increment_progress(progress)
-    progress_callback("Checking email body to keep only hotel reservation emails...", progress)
+    progress_callback("Checking emails to keep only hotel reservation emails...", progress)
     prompts = {
-        email_metadata['id']: f"Here is data for an email, is it a hotel reservation confirmation? Make sure to only keep hotel reservations (and filter out restaurant reservations and other travel related emails). Just answer True or False and nothing else. Metadata: {email_metadata}"
+        email_metadata['id']: f"Here is data for an email, is it a hotel reservation confirmation with a start date, "
+        f"end date, hotel name, room type, coming from a non-personal email, etc.?"
+        f"Make sure to only keep hotel reservations (and filter out cancellations, restaurant reservations and other travel "
+        f"related emails). Just answer True or False and nothing else. Metadata: {email_metadata}"
         for email_metadata in full_hotel_reservation_emails
     }
     # batch_hotel_reservation_classification_full_email = batch_llm_calls(prompts)
-    batch_hotel_reservation_classification_full_email = run_groq_inference_batch_with_pool(prompts, progress_callback, progress=45)
+    batch_hotel_reservation_classification_full_email = run_openai_inference_batch_with_pool(
+        prompts,
+        progress_callback,
+        progress_main_message="Checking emails to keep only hotel reservation emails...",
+        progress=45,
+        max_completion_tokens=4096
+    )
     body_checked_filtered_hotel_reservation_emails = [
         email_metadata
         for email_metadata in full_hotel_reservation_emails
@@ -205,7 +238,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
     )
 
     progress = increment_progress(progress)
-    progress_callback(f"Getting key insights from each email...", progress)
+    progress_callback(f"Getting key insights from each hotel reservation email...", progress)
     prompts = {
         email_metadata['id']: f""""
         Here is data for a hotel reservation email. Please extract key insights from the email:
@@ -226,38 +259,59 @@ def scan_email(credentials_dict, id_info, progress_callback):
         """
         for email_metadata in body_checked_filtered_hotel_reservation_emails
     }
-    batch_hotel_reservation_key_insights = run_groq_inference_batch_with_pool(prompts, progress_callback, progress=55)
+    batch_hotel_reservation_key_insights = run_openai_inference_batch_with_pool(
+        prompts,
+        progress_callback,
+        progress_main_message="Getting key insights from each hotel reservation email...",
+        max_completion_tokens=8192,
+        progress=55
+    )
     hotel_reservation_key_insights = [
         {
-            **email_metadata,
+            **{k: v for k, v in email_metadata.items() if k != 'body'},
             'key_insights': batch_hotel_reservation_key_insights.get(email_metadata['id'], '')
         }
         for email_metadata in body_checked_filtered_hotel_reservation_emails
     ]
     progress_callback(
-        f"Completed getting key insights from each email...",
+        f"Completed getting key insights from each hotel reservation email...",
         progress,
         emails=hotel_reservation_key_insights
     )
 
+    # If too much data for context window, split into batches, and cycle through them while accumulating insights.
     progress = increment_progress(progress)
-    progress_callback(f"Generating insights from all emails...", progress)
-    trip_insights = generate_trip_insights(hotel_reservation_key_insights, os.getenv("OPENAI_API_KEY"), progress_callback, progress=progress, existing_trip_insights = "")
-    progress_callback(
-        f"Completed generating insights from all emails...",
-        progress,
-        emails=hotel_reservation_key_insights,
-        trip_insights=trip_insights
-    )
+    progress_callback(f"Summarizing insights from all hotel reservation emails...", progress)
+    trip_insights = ""
+    num_batches = (len(hotel_reservation_key_insights) + HOTEL_RESERVATION_EMAILS_BATCH_SIZE - 1) // HOTEL_RESERVATION_EMAILS_BATCH_SIZE
+    for i in range(0, len(hotel_reservation_key_insights), HOTEL_RESERVATION_EMAILS_BATCH_SIZE):
+        current_batch = hotel_reservation_key_insights[i:i + HOTEL_RESERVATION_EMAILS_BATCH_SIZE]
+        batch_num = i // HOTEL_RESERVATION_EMAILS_BATCH_SIZE + 1
+        progress_callback(
+            f"Summarizing insights from all hotel reservation emails, processing batch of {len(current_batch)} emails {batch_num}/{num_batches} ...",
+            progress,
+            emails=hotel_reservation_key_insights,
+            trip_insights=trip_insights
+        )
+
+        # Call generate_trip_insights with the current batch and existing insights
+        trip_insights = generate_trip_insights(
+            hotel_reservation_key_insights,
+            OPENAI_API_KEY,
+            progress_callback,
+            progress=progress,
+            existing_trip_insights = trip_insights  # Pass the accumulated insights
+        )
 
     progress = increment_progress(progress)
-    progress_callback(f"Generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip metadatas...", progress)    
+    progress_callback(f"Generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...", progress)    
     # hotel_reservation_key_insights # If too much data for context window, just send summarized trip_insights, works pretty well.
-    trip_jsons = generate_trips_metadatas([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, os.getenv("OPENAI_API_KEY"), progress_callback, progress=progress)
+    # trip_jsons = generate_trips_metadatas_cerebras_openrouter([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, progress_callback, progress=progress)
+    trip_jsons = generate_trips_metadatas([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, OPENAI_API_KEY, progress_callback, progress=progress)
 
     progress = 100
     progress_callback(
-        message = f"Completed generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip metadatas...",
+        message = f"Completed generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...",
         progress=progress,
         status="completed",
         emails=hotel_reservation_key_insights,
@@ -296,7 +350,7 @@ def send_trip_insights_by_email(service, to_from_email, trip_insights, trip_json
     print(f"Message Id: {sent_message['id']}")
     
 
-def search_emails(service, query, progress_callback, progress=5, max_results=500):
+def search_emails(service, query, progress_callback, progress_main_message="", progress=5, max_results=500):
     """Search for emails matching the query.
     
     Args:
@@ -307,7 +361,6 @@ def search_emails(service, query, progress_callback, progress=5, max_results=500
     Returns:
         List of messages that match the criteria
     """
-    progress_callback(f"search_emails...", progress)
     try:
         # Initialize empty list for messages and nextPageToken
         messages = []
@@ -330,11 +383,11 @@ def search_emails(service, query, progress_callback, progress=5, max_results=500
                 
             # Add messages to our list
             messages.extend(page_messages)
-            progress_callback(f"Retrieved {len(messages)} emails IDs of max {max_results}...", progress)
+            progress_callback(f"{progress_main_message} Retrieved {len(messages)} emails IDs of max {max_results}...", progress)
             
             # Check if we've reached the desired number of results
             if len(messages) >= max_results:
-                progress_callback(f"Reached maximum of {max_results} emails", progress)
+                progress_callback(f"{progress_main_message} Reached maximum of {max_results} emails", progress)
                 break
                 
             # Get token for next page or exit if no more pages
@@ -348,7 +401,7 @@ def search_emails(service, query, progress_callback, progress=5, max_results=500
         progress_callback(f"An error occurred: {error}\nstack_trace: {traceback.format_exc()}", progress)
         return []
 
-def get_email_metadatas_batch(msg_ids, credentials_dict, progress_callback, progress=15, max_workers=MAX_EMAIL_CONCURRENCY):
+def get_email_metadatas_batch(msg_ids, credentials_dict, progress_callback, progress_main_message="", progress=15, max_workers=MAX_EMAIL_CONCURRENCY):
     """Get email metadata for multiple message IDs in a batch request."""
     results = []
     results_lock = Lock()
@@ -392,12 +445,12 @@ def get_email_metadatas_batch(msg_ids, credentials_dict, progress_callback, prog
                 results.append(email_metadata)
                 fetched_count = len(results)
                 if fetched_count % max_workers == 0:
-                    progress_callback(f"Fetched {fetched_count} / {len_emails} email metadatas...", progress)
+                    progress_callback(f"{progress_main_message} Fetched {fetched_count} / {len_emails} email metadatas...", progress)
             
             return email_metadata
         
         except HttpError as error:
-            progress_callback(f"Error fetching message {msg_id}: {error}", progress)
+            progress_callback(f"{progress_main_message} Error fetching message {msg_id}: {error}", progress)
             return None
     
     # results = [fetch_single_message(msg_id, idx) for idx, msg_id in enumerate(msg_ids)]
@@ -419,33 +472,33 @@ def get_email_metadatas_batch(msg_ids, credentials_dict, progress_callback, prog
     
     return results
 
-def run_groq_inference(prompt, model):
-    groq_client = Groq()
-    completion = groq_client.chat.completions.create(
+def run_openai_inference(prompt, model, max_completion_tokens=4096, temperature=1.0, top_p=1.0):
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    response = openai_client.chat.completions.create(
         model=model,
         messages=[
             {
                 "role": "user",
                 "content": prompt
-            },
+            }
         ],
-        temperature=0.6,
-        max_completion_tokens=128,
-        top_p=1.0,
-        stream=False,
-        stop=None,
+        max_completion_tokens=max_completion_tokens,
+        temperature=temperature,
+        top_p=top_p
     )
-    return completion.choices[0].message.content
 
-def run_groq_inference_batch_with_pool(
+    return response.choices[0].message.content
+
+def run_openai_inference_batch_with_pool(
     prompts_dict,
     progress_callback,
+    progress_main_message = "Processing prompts...",
     progress=20,
-    max_workers=MAX_CONCURRENCY,
-    model="meta-llama/llama-4-maverick-17b-128e-instruct",
+    max_workers=MAX_AI_INFERENCE_CONCURRENCY,
+    model="o4-mini",
+    max_completion_tokens=4096,
     ):
-    """Process multiple prompts with Groq API using a thread pool."""
-    # Also smaller "meta-llama/llama-4-scout-17b-16e-instruct" 
+    """Process multiple prompts with OpenAI API using a thread pool."""
     results = {}
     results_lock = Lock() # To safely update the shared results dictionary
     completed_count = 0
@@ -454,12 +507,12 @@ def run_groq_inference_batch_with_pool(
     def process_single_prompt(prompt_id, prompt_text):
         nonlocal completed_count
         try:
-            response = run_groq_inference(prompt_text, model=model) # Your existing inference function
+            response = run_openai_inference(prompt_text, model=model, max_completion_tokens=max_completion_tokens) # Your existing inference function
             with results_lock:
                 results[prompt_id] = response
                 completed_count += 1
                 if completed_count % max_workers == 0:
-                    progress_callback(f"Completed {completed_count} / {total_prompts}", progress)
+                    progress_callback(f"{progress_main_message} Completed {completed_count} / {total_prompts}", progress)
             return prompt_id, response
         except Exception as e:
             with results_lock:
@@ -488,6 +541,7 @@ def get_full_email_batch(
     msg_ids,
     credentials_dict,
     progress_callback,
+    progress_main_message="",
     progress=20,
     max_workers=MAX_EMAIL_CONCURRENCY,
     ):
@@ -561,12 +615,12 @@ def get_full_email_batch(
                 results.append(email_metadata)
                 fetched_count = len(results)            
                 if fetched_count % max_workers == 0:
-                    progress_callback(f"Fetched {fetched_count} / {len_emails} full email contents...", progress)
+                    progress_callback(f"{progress_main_message} Fetched {fetched_count} / {len_emails} full email contents...", progress)
             
             return email_metadata
         
         except HttpError as error:
-            progress_callback(f"Error fetching message {msg_id}: {error}", progress)
+            progress_callback(f"{progress_main_message} Error fetching message {msg_id}: {error}", progress)
             return None
     
     # results = [fetch_single_full_message(msg_id, idx) for idx, msg_id in enumerate(msg_ids[:10])]
