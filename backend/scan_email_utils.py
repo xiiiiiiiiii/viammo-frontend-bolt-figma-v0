@@ -18,9 +18,6 @@ from email.message import EmailMessage
 
 from openai import OpenAI
 
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-
 from dotenv import load_dotenv
 
 
@@ -398,7 +395,7 @@ def search_emails(service, query, progress_callback, progress_main_message="", p
         return messages
         
     except Exception as error:
-        progress_callback(f"An error occurred: {error}\nstack_trace: {traceback.format_exc()}", progress)
+        progress_callback(f"{progress_main_message} An error occurred: {error}\nstack_trace: {traceback.format_exc()}", progress)
         return []
 
 def get_email_metadatas_batch(msg_ids, credentials_dict, progress_callback, progress_main_message="", progress=15, max_workers=MAX_EMAIL_CONCURRENCY):
@@ -468,11 +465,11 @@ def get_email_metadatas_batch(msg_ids, credentials_dict, progress_callback, prog
                 # This will re-raise any exceptions from the task
                 future.result()
             except Exception as exc:
-                progress_callback(f"Message {msg_id} generated an exception: {exc}", progress)
+                progress_callback(f"{progress_main_message} Message {msg_id} generated an exception: {exc}", progress)
     
     return results
 
-def run_openai_inference(prompt, model, max_completion_tokens=4096, temperature=1.0, top_p=1.0):
+def run_openai_inference(prompt, model="o4-mini", max_completion_tokens=4096, temperature=1.0, top_p=1.0):
     openai_client = OpenAI(api_key=OPENAI_API_KEY)
     response = openai_client.chat.completions.create(
         model=model,
@@ -507,7 +504,7 @@ def run_openai_inference_batch_with_pool(
     def process_single_prompt(prompt_id, prompt_text):
         nonlocal completed_count
         try:
-            response = run_openai_inference(prompt_text, model=model, max_completion_tokens=max_completion_tokens) # Your existing inference function
+            response = run_openai_inference(prompt_text, model=model, max_completion_tokens=max_completion_tokens)
             with results_lock:
                 results[prompt_id] = response
                 completed_count += 1
@@ -651,75 +648,55 @@ def generate_trip_insights(trip_message_datas, openai_api_key, progress_callback
         print("Warning: OPENAI_API_KEY environment variable not set. Skipping LLM keyword extraction.")
         return None
     
-    try:        
-        llm_model = "o4-mini"
-        
-        # Initialize the LLM with the API key explicitly
-        llm = ChatOpenAI(model=llm_model, openai_api_key=openai_api_key)
-        
-        # Define a prompt template for hotel characteristics
-        template = """
-        Based on the following hotel reservation email messages and the existing trip insights, please analyze the typical patterns of
-        the user's travel preferences and generate a list of types of trips that the user has taken. For each type of trip, include the
-        following key information:
-        - destination
-        - time of year, e.g. ski week, spring break, summer, end of year holidays, Thanksgiving, Memorial Day, Labor Day, etc.
-        - length of the trip
-        - number of guests and type of guests, e.g. adults, children, infants, etc.
-        - number of times the user did a similar trip
-        - likely purpose of the trip
-        - total budget with $ signs, e.g. "$$$$",  "$$$", "$$", "$", etc. with "$$$$" being the highest budget.
-        - preferred hotel, keep specifics e.g. "Hilton Honolulu", "Hyatt Waikiki", "St. Regis San Francisco", etc.
-        - preferred hotel chains, keep specifics e.g. "Hilton", "Marriott", "Hyatt", "St. Regis", "Rosewood", "Relais & Chateaux", "Four Seasons", "Leading Hotels of the World", etc.
-        - preferred hotel characteristics, keep specifics e.g. "family friendly", "ski-in-ski-out", "beach front", "pool", "gym", "spa", "free Wi-Fi", "free breakfast", "free airport shuttle", "free parking", etc.
-        - preferred room types, keep specifics e.g. "1 King bed Suite", "1 room with King bed and 1 room with 2 queens", "2 Queen beds", "Crib", "Pool view", "Garden view", "Ocean view", "Mountain view", etc.
-        - preferred amenities, keep specifics e.g. "ski-in-ski-out", "beach front", "pool", "gym", "spa", "free Wi-Fi", "free breakfast", "free airport shuttle", "free parking", etc.
-        - preferred activities, keep specifics e.g. "skiing", "snowboarding", "hiking", "surfing", "golfing", "scuba diving", "snorkeling", "water sports", "etc."
-        - preferred dining experiences, keep specifics e.g. "fine dining", "casual dining", "cafe", "pub", "italian", "japanese", "mexican", "etc."
-        - preferred payment method, keep specifics e.g. "credit card", "debit card", "hyatt points", "marriott points", "etc."
-        - key details from each trip in this trip type
-        - any other information that would be helpful for a travel planner to know.
+    # Define a prompt template for hotel characteristics
+    prompt = f"""
+    Based on the following hotel reservation email messages and the existing trip insights, please analyze the typical patterns of
+    the user's travel preferences and generate a list of types of trips that the user has taken. For each type of trip, include the
+    following key information:
+    - destination
+    - time of year, e.g. ski week, spring break, summer, end of year holidays, Thanksgiving, Memorial Day, Labor Day, etc.
+    - length of the trip
+    - number of guests and type of guests, e.g. adults, children, infants, etc.
+    - number of times the user did a similar trip
+    - likely purpose of the trip
+    - total budget with $ signs, e.g. "$$$$",  "$$$", "$$", "$", etc. with "$$$$" being the highest budget.
+    - preferred hotel, keep specifics e.g. "Hilton Honolulu", "Hyatt Waikiki", "St. Regis San Francisco", etc.
+    - preferred hotel chains, keep specifics e.g. "Hilton", "Marriott", "Hyatt", "St. Regis", "Rosewood", "Relais & Chateaux", "Four Seasons", "Leading Hotels of the World", etc.
+    - preferred hotel characteristics, keep specifics e.g. "family friendly", "ski-in-ski-out", "beach front", "pool", "gym", "spa", "free Wi-Fi", "free breakfast", "free airport shuttle", "free parking", etc.
+    - preferred room types, keep specifics e.g. "1 King bed Suite", "1 room with King bed and 1 room with 2 queens", "2 Queen beds", "Crib", "Pool view", "Garden view", "Ocean view", "Mountain view", etc.
+    - preferred amenities, keep specifics e.g. "ski-in-ski-out", "beach front", "pool", "gym", "spa", "free Wi-Fi", "free breakfast", "free airport shuttle", "free parking", etc.
+    - preferred activities, keep specifics e.g. "skiing", "snowboarding", "hiking", "surfing", "golfing", "scuba diving", "snorkeling", "water sports", "etc."
+    - preferred dining experiences, keep specifics e.g. "fine dining", "casual dining", "cafe", "pub", "italian", "japanese", "mexican", "etc."
+    - preferred payment method, keep specifics e.g. "credit card", "debit card", "hyatt points", "marriott points", "etc."
+    - key details from each trip in this trip type
+    - any other information that would be helpful for a travel planner to know.
 
-        Try to generate 5-10 trip types with at least 3 trips per trip type unless you don't have enough trips. If you don't have enough
-        trips, start by creating trip types based off of individual trips.
+    Try to generate 5-10 trip types with at least 3 trips per trip type unless you don't have enough trips. If you don't have enough
+    trips, start by creating trip types based off of individual trips.
 
-        If you already have generated some trip insights, please add new trip types or merge existing trip types. When merging trip type
-        information, make sure to keep track of the total number of days for all trips in that trip type, and any other salient details.
-        Rank your trip types with a higher total number of days and total number of trips higher in your list. Keep the number of trip types
-        between below or equal to 10.
+    If you already have generated some trip insights, please add new trip types or merge existing trip types. When merging trip type
+    information, make sure to keep track of the total number of days for all trips in that trip type, and any other salient details.
+    Rank your trip types with a higher total number of days and total number of trips higher in your list. Keep the number of trip types
+    between below or equal to 10.
 
-        You're output should be a self-sufficient list of trip types and their key information (not just an addition to an existing list
-        of trip insights).
+    You're output should be a self-sufficient list of trip types and their key information (not just an addition to an existing list
+    of trip insights).
 
-        Return just list of the types of trips and their key information (as highlighted above).
+    Return just list of the types of trips and their key information (as highlighted above).
 
-        Here is the existing trip insights you have already started to generate:
-        {existing_trip_insights}
+    Here is the existing trip insights you have already started to generate:
+    {existing_trip_insights}
 
-        Here are the new hotel reservation emails you need to analyze:
-        {trip_message_datas}
-        """
-        
-        prompt = ChatPromptTemplate.from_template(template)
-        
-        # Generate the response
-        chain = prompt | llm
-        response = chain.invoke({
-            "existing_trip_insights": existing_trip_insights,
-            "trip_message_datas": trip_message_datas
-        })
+    Here are the new hotel reservation emails you need to analyze:
+    {trip_message_datas}
+    """
 
-        # Extract JSON from the response
-        response_content = response.content
-        if not response_content:
-            progress_callback(f"LLM did not return a response to generate trip insights", progress)
-            return None
-        
-        return response_content
-            
-    except ImportError:
-        progress_callback(f"LangChain or OpenAI packages not installed.", progress)
+    response_content = run_openai_inference(prompt, max_completion_tokens=130000)
+    if not response_content:
+        progress_callback(f"LLM did not return a response to generate trip insights", progress)
         return None
+    
+    return response_content
 
 def generate_trips_metadatas(trip_message_datas, trip_insights, num_trips, openai_api_key, progress_callback, progress=100) -> str:
     """
@@ -729,89 +706,68 @@ def generate_trips_metadatas(trip_message_datas, trip_insights, num_trips, opena
     if not openai_api_key:
         print("Warning: OPENAI_API_KEY environment variable not set. Skipping LLM keyword extraction.")
         return None
+        
+    # Define a prompt template for hotel characteristics
+    prompt = f"""
+    Based on the following hotel reservation email messages and the following trip insights, please analyze the typical patterns of the user's
+    travel preferences and generate a list of great future possile trips as a json list of distionaries with up to {num_trips} trip objects like
+    the one below corresponding to the user's travel preferences. Please only return valid JSON and nothing else - no explanations or text before
+    or after the JSON. Please only use the json fields that are present in the example trip json objects below - don't add extra json fields, add
+    extra info in notes field for example. Make sure the dates are in the future and correspond to the preferred destinations.
+
+    Make sure to find and account for the following information in the trip json objects:
+    - preferred destinations
+    - preferred travel dates for preferred destinations
+    - number of guests and type of guests for those preferred destinations and dates, try using age of guests to determine if they are adults or children.
+    - purpose of the trip, e.g. "Family vacation", "Business trip", "Solo travel", "Couple's getaway", etc. Try using past room types for preferred destinations to determine purpose, e.g. 1 room with 2 queen beds probably isn't a couple's getaway purpose trip.
+    - total budget with $ signs, e.g. "$$$$",  "$$$", "$$", "$", etc. with "$$$$" being the highest budget.
+    - Preferred hotel characteristics to add to notes field, e.g. "Family friendly", "Ski-in-ski-out", "Beachfront", "Business class", etc.
+    - Preferred hotel chains to add to notes field, e.g. "Hilton", "Marriott", "Hyatt", "St. Regis", "Rosewood", "Relais & Chateaux", "Four Seasons", "Leading Hotels of the World", etc.
+    - Preferred room types to add to notes field, e.g. "1 King bed Suite", "1 room with King bed and 1 room with 2 queens", "2 Queen beds", "Crib", "Pool view", "Garden view", "Ocean view", "Mountain view", etc.
+    - Preferred amenities to add to notes field, e.g. "Free Wi-Fi", "Free breakfast", "Free airport shuttle", "Free parking", "Free Wi-Fi", "Free breakfast", "Free airport shuttle", "Free parking", etc.
+    - Preferred hotel features to add to notes field, e.g. "Spa", "Gym", "Pool", "Beachfront", "Ski-in-ski-out", "Walkable", "Ocean view", "Mountain view", "Garden view", etc.
+    - Preferred activities to add to notes field, e.g. "Hiking", "Skiing", "Cross Country Skiing", "Backcountry Skiing & Snowboarding", "Surfing", "Golfing", "Scuba diving", "Snorkeling", "Water sports", "Sailing", "Fishing", "etc."
+    - Preferred dining experiences to add to notes field, e.g. "Fine dining", "Casual dining", "Fast food", "Cafe", "Bar", "Pub", "Italian", "Japanese", "Mexican", "American", "French", "Spanish", "etc."
+    - Preferred children activities to add to notes field, e.g. "Kids club", "Kids activities", "Kids pool", "Kids spa", "Kids gym", "Kids beach", "Kids mountain", "Kids garden", "etc."
+    - any other information that would be helpful for a travel planner to know.
+
+    Example returned list of with 1 trip object (up to {num_trips} great):
+    [
+        {{
+            "name": "Tahoe Family",
+            "startDate": "2026-02-18T07:00:00.000Z",
+            "endDate": "2026-02-21T07:00:00.000Z",
+            "destination": {{
+                "city": "Palisades Tahoe",
+                "state": "CA",
+                "country": "USA"
+            }},
+            "numberOfGuests": {{
+                "$numberInt": "4"
+            }},
+            "notes": "Ski-in-ski-out, family friendly, 1 room with 2 adults with one king bed, 1 room with 2 kids and 2 queen beds",
+            "totalBudget": "$$$$",
+            "purpose": "Family vacation"
+        }}
+    ]
+
+    Here are the trip insights you have already generated:
+    {trip_insights}
+
+    Trip message datas:
+    {trip_message_datas}
+    """
+
+    response_content = run_openai_inference(prompt, max_completion_tokens=130000)
+    if not response_content:
+        progress_callback(f"LLM did not return a response to generate trip insights", progress)
+        return None
     
-    try:        
-        llm_model = "o4-mini"  # Reasoning capabilities are important for this task (e.g. "2 Queen beds probably isn't a couple's getaway purpose trip.")
-        
-        # Initialize the LLM with the API key explicitly
-        llm = ChatOpenAI(model=llm_model, openai_api_key=openai_api_key)
-        
-        # Define a prompt template for hotel characteristics
-        template = """
-        Based on the following hotel reservation email messages and the following trip insights, please analyze the typical patterns of the user's
-        travel preferences and generate a list of great future possile trips as a json list of distionaries with up to {num_trips} trip objects like
-        the one below corresponding to the user's travel preferences. Please only return valid JSON and nothing else - no explanations or text before
-        or after the JSON. Please only use the json fields that are present in the example trip json objects below - don't add extra json fields, add
-        extra info in notes field for example. Make sure the dates are in the future and correspond to the preferred destinations.
-
-        Make sure to find and account for the following information in the trip json objects:
-        - preferred destinations
-        - preferred travel dates for preferred destinations
-        - number of guests and type of guests for those preferred destinations and dates, try using age of guests to determine if they are adults or children.
-        - purpose of the trip, e.g. "Family vacation", "Business trip", "Solo travel", "Couple's getaway", etc. Try using past room types for preferred destinations to determine purpose, e.g. 1 room with 2 queen beds probably isn't a couple's getaway purpose trip.
-        - total budget with $ signs, e.g. "$$$$",  "$$$", "$$", "$", etc. with "$$$$" being the highest budget.
-        - Preferred hotel characteristics to add to notes field, e.g. "Family friendly", "Ski-in-ski-out", "Beachfront", "Business class", etc.
-        - Preferred hotel chains to add to notes field, e.g. "Hilton", "Marriott", "Hyatt", "St. Regis", "Rosewood", "Relais & Chateaux", "Four Seasons", "Leading Hotels of the World", etc.
-        - Preferred room types to add to notes field, e.g. "1 King bed Suite", "1 room with King bed and 1 room with 2 queens", "2 Queen beds", "Crib", "Pool view", "Garden view", "Ocean view", "Mountain view", etc.
-        - Preferred amenities to add to notes field, e.g. "Free Wi-Fi", "Free breakfast", "Free airport shuttle", "Free parking", "Free Wi-Fi", "Free breakfast", "Free airport shuttle", "Free parking", etc.
-        - Preferred hotel features to add to notes field, e.g. "Spa", "Gym", "Pool", "Beachfront", "Ski-in-ski-out", "Walkable", "Ocean view", "Mountain view", "Garden view", etc.
-        - Preferred activities to add to notes field, e.g. "Hiking", "Skiing", "Cross Country Skiing", "Backcountry Skiing & Snowboarding", "Surfing", "Golfing", "Scuba diving", "Snorkeling", "Water sports", "Sailing", "Fishing", "etc."
-        - Preferred dining experiences to add to notes field, e.g. "Fine dining", "Casual dining", "Fast food", "Cafe", "Bar", "Pub", "Italian", "Japanese", "Mexican", "American", "French", "Spanish", "etc."
-        - Preferred children activities to add to notes field, e.g. "Kids club", "Kids activities", "Kids pool", "Kids spa", "Kids gym", "Kids beach", "Kids mountain", "Kids garden", "etc."
-        - any other information that would be helpful for a travel planner to know.
-
-        Example returned list of with 1 trip object (up to {num_trips} great):
-        [
-            {{
-                "name": "Tahoe Family",
-                "startDate": "2026-02-18T07:00:00.000Z",
-                "endDate": "2026-02-21T07:00:00.000Z",
-                "destination": {{
-                    "city": "Palisades Tahoe",
-                    "state": "CA",
-                    "country": "USA"
-                }},
-                "numberOfGuests": {{
-                    "$numberInt": "4"
-                }},
-                "notes": "Ski-in-ski-out, family friendly, 1 room with 2 adults with one king bed, 1 room with 2 kids and 2 queen beds",
-                "totalBudget": "$$$$",
-                "purpose": "Family vacation"
-            }}
-        ]
-
-        Here are the trip insights you have already generated:
-        {trip_insights}
-
-        Trip message datas:
-        {trip_message_datas}
-        """
-        
-        prompt = ChatPromptTemplate.from_template(template)
-        
-        # Generate the response
-        chain = prompt | llm
-        response = chain.invoke({
-            "trip_message_datas": trip_message_datas,
-            "trip_insights": trip_insights,
-            "num_trips": num_trips
-        })
-
-        # Extract JSON from the response
-        response_content = response.content
-        if not response_content:
-            progress_callback(f"LLM did not return a response to generate trip metadata", progress)
-            return None
-        
-        # Try to parse the response as JSON
-        try:
-            # Parse the JSON
-            trip_jsons = json.loads(response_content)
-            return trip_jsons
-        except json.JSONDecodeError as e:
-            progress_callback(f"Error parsing JSON response: {e} Raw response: {response_content}", progress)
-            return None
-            
-    except ImportError:
-        progress_callback(f"LangChain or OpenAI packages not installed.", progress)
+    # Try to parse the response as JSON
+    try:
+        # Parse the JSON
+        trip_jsons = json.loads(response_content)
+        return trip_jsons
+    except json.JSONDecodeError as e:
+        progress_callback(f"Error parsing JSON response: {e} Raw response: {response_content}", progress)
         return None
