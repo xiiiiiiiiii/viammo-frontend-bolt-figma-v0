@@ -3,7 +3,7 @@ flask_cors
 flask_executor
 openai
 langchain
-langchain_openai
+langchain-openai
 pymongo
 python-dotenv
 google-api-python-client
