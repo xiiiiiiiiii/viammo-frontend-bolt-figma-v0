@@ -40,7 +40,7 @@ REDIRECT_URI = os.getenv('REDIRECT_URI')
 LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
 MAX_EMAIL_CONCURRENCY = 20
 MAX_AI_INFERENCE_CONCURRENCY = 100
-EMAILS_LIMIT = 5000
+EMAILS_LIMIT = 3500
 NUM_TRIPS_METADATA_TO_GENERATE = 5
 HOTEL_RESERVATION_EMAILS_BATCH_SIZE = 20
 
@@ -164,7 +164,7 @@ def get_gmail_service_from_session(credentials_dict):
     gmail_service = build('gmail', 'v1', credentials=credentials)
     return gmail_service
 
-def increment_progress(progress, increment=10):
+def increment_progress(progress, increment=15):
     progress = min(100, progress + increment)
     return progress
 
@@ -198,7 +198,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
     progress_callback("Getting full content of hotel reservation emails...", progress)
 
     msg_ids = [message['id'] for message in messages]
-    full_hotel_reservation_emails = get_full_email_batch(
+    hotel_reservation_emails = get_full_email_batch(
         msg_ids,
         credentials_dict,
         progress_callback,
@@ -208,36 +208,43 @@ def scan_email(credentials_dict, id_info, progress_callback):
 
     progress = increment_progress(progress)
     progress_callback("Checking emails to keep only hotel reservation emails...", progress)
-    prompts = {
-        email_metadata['id']: f"Here is data for an email, is it a hotel reservation confirmation with a start date, "
-        f"end date, hotel name, room type, coming from a non-personal email, etc.?"
-        f"Make sure to only keep hotel reservations (and filter out cancellations, restaurant reservations and other travel "
-        f"related emails). Just answer True or False and nothing else. Metadata: {email_metadata}"
-        for email_metadata in full_hotel_reservation_emails
-    }
+    def get_prompt_is_hotel_reservation(msg_id):
+        email_metadata = hotel_reservation_emails.get(msg_id)
+        prompt = f"""
+        Here is data for an email, is it a hotel reservation confirmation with a start date,
+        end date, hotel name, room type, coming from a non-personal email, etc.?
+        Make sure to only keep hotel reservations (and filter out cancellations, restaurant
+        reservations and other travel related emails).
+
+        Just answer True or False and nothing else.
+
+        Email data:
+        {email_metadata}
+        """
+        return prompt
     # batch_hotel_reservation_classification_full_email = batch_llm_calls(prompts)
     batch_hotel_reservation_classification_full_email = run_openai_inference_batch_with_pool(
-        prompts,
+        get_prompt_is_hotel_reservation,
+        hotel_reservation_emails.keys(),
         progress_callback,
         progress_main_message="Checking emails to keep only hotel reservation emails...",
         progress=45,
         max_completion_tokens=4096
     )
-    body_checked_filtered_hotel_reservation_emails = [
-        email_metadata
-        for email_metadata in full_hotel_reservation_emails
-        if "True" == batch_hotel_reservation_classification_full_email.get(email_metadata['id'], 'False')
-    ]
+    for msg_id, is_hotel_reservation in batch_hotel_reservation_classification_full_email.items():
+        if is_hotel_reservation != "True":
+            del hotel_reservation_emails[msg_id]
     progress_callback(
-        f"Filtered down to {len(body_checked_filtered_hotel_reservation_emails)} hotel reservation emails.",
+        f"Filtered down to {len(hotel_reservation_emails)} hotel reservation emails.",
         progress,
-        emails=body_checked_filtered_hotel_reservation_emails
+        emails=hotel_reservation_emails
     )
 
     progress = increment_progress(progress)
     progress_callback(f"Getting key insights from each hotel reservation email...", progress)
-    prompts = {
-        email_metadata['id']: f""""
+    def get_prompt_hotel_reservation_insights(msg_id):
+        email_metadata = hotel_reservation_emails.get(msg_id)
+        prompt = f"""
         Here is data for a hotel reservation email. Please extract key insights from the email:
         - hotel name
         - check-in, check-out dates, month of year, season of year, is this a ski-week trip? a spring break trip? a summer trip? etc.
@@ -254,35 +261,34 @@ def scan_email(credentials_dict, id_info, progress_callback):
         Email data:
         {email_metadata}"
         """
-        for email_metadata in body_checked_filtered_hotel_reservation_emails
-    }
+        return prompt
     batch_hotel_reservation_key_insights = run_openai_inference_batch_with_pool(
-        prompts,
+        get_prompt_hotel_reservation_insights,
+        hotel_reservation_emails.keys(),
         progress_callback,
         progress_main_message="Getting key insights from each hotel reservation email...",
         max_completion_tokens=8192,
         progress=55
     )
-    hotel_reservation_key_insights = [
-        {
-            **{k: v for k, v in email_metadata.items() if k != 'body'},
-            'key_insights': batch_hotel_reservation_key_insights.get(email_metadata['id'], '')
-        }
-        for email_metadata in body_checked_filtered_hotel_reservation_emails
-    ]
+    for msg_id, hotel_reservation_insights in batch_hotel_reservation_key_insights.items():
+        email_metadata = hotel_reservation_emails[msg_id]
+        # del email_metadata['body']  # If we don't have enought RAM, might be worth discarding full email body since we have key insights.
+        email_metadata['key_insights'] = hotel_reservation_insights
     progress_callback(
         f"Completed getting key insights from each hotel reservation email...",
         progress,
-        emails=hotel_reservation_key_insights
+        emails=hotel_reservation_emails
     )
 
     # If too much data for context window, split into batches, and cycle through them while accumulating insights.
     progress = increment_progress(progress)
     progress_callback(f"Summarizing insights from all hotel reservation emails...", progress)
+    all_msg_ids = list(hotel_reservation_emails.keys())
     trip_insights = ""
-    num_batches = (len(hotel_reservation_key_insights) + HOTEL_RESERVATION_EMAILS_BATCH_SIZE - 1) // HOTEL_RESERVATION_EMAILS_BATCH_SIZE
-    for i in range(0, len(hotel_reservation_key_insights), HOTEL_RESERVATION_EMAILS_BATCH_SIZE):
-        current_batch = hotel_reservation_key_insights[i:i + HOTEL_RESERVATION_EMAILS_BATCH_SIZE]
+    num_batches = (len(hotel_reservation_emails) + HOTEL_RESERVATION_EMAILS_BATCH_SIZE - 1) // HOTEL_RESERVATION_EMAILS_BATCH_SIZE
+    for i in range(0, len(hotel_reservation_emails), HOTEL_RESERVATION_EMAILS_BATCH_SIZE):
+        current_batch_msg_ids = all_msg_ids[i:i + HOTEL_RESERVATION_EMAILS_BATCH_SIZE]
+        current_batch = [hotel_reservation_emails[msg_id] for msg_id in current_batch_msg_ids]
         batch_num = i // HOTEL_RESERVATION_EMAILS_BATCH_SIZE + 1
         progress_callback(
             message = f"Summarizing insights from all hotel reservation emails, processing batch of {len(current_batch)} emails {batch_num}/{num_batches} ...",
@@ -310,7 +316,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
         message = f"Completed generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...",
         progress=progress,
         status="completed",
-        emails=hotel_reservation_key_insights,
+        emails=hotel_reservation_emails,
         trip_insights=trip_insights,
         recommendations=trip_jsons
     )
@@ -486,7 +492,8 @@ def run_openai_inference(prompt, model="o4-mini", max_completion_tokens=4096, te
     return response.choices[0].message.content
 
 def run_openai_inference_batch_with_pool(
-    prompts_dict,
+    get_prompt_f,
+    prompt_ids,
     progress_callback,
     progress_main_message = "Processing prompts...",
     progress=20,
@@ -498,10 +505,11 @@ def run_openai_inference_batch_with_pool(
     results = {}
     results_lock = Lock() # To safely update the shared results dictionary
     completed_count = 0
-    total_prompts = len(prompts_dict)
+    total_prompts = len(prompt_ids)
 
-    def process_single_prompt(prompt_id, prompt_text):
+    def process_single_prompt(prompt_id, get_prompt_f):
         nonlocal completed_count
+        prompt_text = get_prompt_f(prompt_id)
         try:
             response = run_openai_inference(prompt_text, model=model, max_completion_tokens=max_completion_tokens)
             with results_lock:
@@ -519,7 +527,7 @@ def run_openai_inference_batch_with_pool(
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit tasks: executor.submit(function, arg1, arg2, ...)
-        future_to_prompt_id = {executor.submit(process_single_prompt, pid, ptext): pid for pid, ptext in prompts_dict.items()}
+        future_to_prompt_id = {executor.submit(process_single_prompt, pid, get_prompt_f): pid for pid in prompt_ids}
 
         for future in concurrent.futures.as_completed(future_to_prompt_id):
             prompt_id_completed = future_to_prompt_id[future]
@@ -542,7 +550,7 @@ def get_full_email_batch(
     max_workers=MAX_EMAIL_CONCURRENCY,
     ):
     """Get full email for multiple message IDs in a batch request."""
-    results = []
+    results = {}
     results_lock = Lock()
     
     def fetch_single_full_message(msg_id, idx, len_emails):
@@ -608,7 +616,7 @@ def get_full_email_batch(
             }
 
             with results_lock:
-                results.append(email_metadata)
+                results[msg_id] = email_metadata
                 fetched_count = len(results)            
                 if fetched_count % max_workers == 0:
                     progress_callback(f"{progress_main_message} Fetched {fetched_count} / {len_emails} full email contents...", progress)
@@ -618,8 +626,6 @@ def get_full_email_batch(
         except HttpError as error:
             progress_callback(f"{progress_main_message} Error fetching message {msg_id}: {error}", progress)
             return None
-    
-    # results = [fetch_single_full_message(msg_id, idx) for idx, msg_id in enumerate(msg_ids[:10])]
 
     # Create a thread pool with limited concurrency
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:

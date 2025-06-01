@@ -256,7 +256,7 @@ def google_logged_in_scan_email():
     task_id = uuid.uuid4().hex
     _google_logged_in_scan_email_status(task_id) # Check user logged in.
 
-    def progress_callback(message, progress, status="progress", recommendations=None, trip_insights=None, emails=None):
+    def progress_callback(message, progress, status="in_progress", recommendations=None, trip_insights=None, emails=None):
         print(message)
         if task_id not in tasks:
             tasks[task_id] = {}
@@ -349,7 +349,7 @@ def google_logged_in_scan_email_status_str(task_id):
         out += "<br>=== Emails ===<br>"
         if emails:
             out += f"{len(emails)} hotel reservation emails found.<br><br>"
-            for email_data in emails:
+            for email_data in emails.values():
                 out += f"Email Subject: {email_data['subject']}<br>"
                 out += f"   From: {email_data['sender']}<br>"
                 out += f"   Date: {email_data['date']}<br>"
