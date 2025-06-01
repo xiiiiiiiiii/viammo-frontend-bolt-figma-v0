@@ -229,7 +229,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
         if "True" == batch_hotel_reservation_classification_full_email.get(email_metadata['id'], 'False')
     ]
     progress_callback(
-        f"Filtered down to {len(body_checked_filtered_hotel_reservation_emails)} based on body.",
+        f"Filtered down to {len(body_checked_filtered_hotel_reservation_emails)} hotel reservation emails.",
         progress,
         emails=body_checked_filtered_hotel_reservation_emails
     )
@@ -285,15 +285,14 @@ def scan_email(credentials_dict, id_info, progress_callback):
         current_batch = hotel_reservation_key_insights[i:i + HOTEL_RESERVATION_EMAILS_BATCH_SIZE]
         batch_num = i // HOTEL_RESERVATION_EMAILS_BATCH_SIZE + 1
         progress_callback(
-            f"Summarizing insights from all hotel reservation emails, processing batch of {len(current_batch)} emails {batch_num}/{num_batches} ...",
-            progress,
-            emails=hotel_reservation_key_insights,
+            message = f"Summarizing insights from all hotel reservation emails, processing batch of {len(current_batch)} emails {batch_num}/{num_batches} ...",
+            progress=progress,
             trip_insights=trip_insights
         )
 
         # Call generate_trip_insights with the current batch and existing insights
         trip_insights = generate_trip_insights(
-            hotel_reservation_key_insights,
+            current_batch,
             OPENAI_API_KEY,
             progress_callback,
             progress=progress,
@@ -301,7 +300,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
         )
 
     progress = increment_progress(progress)
-    progress_callback(f"Generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...", progress)    
+    progress_callback(f"Generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...", progress, trip_insights=trip_insights)
     # hotel_reservation_key_insights # If too much data for context window, just send summarized trip_insights, works pretty well.
     # trip_jsons = generate_trips_metadatas_cerebras_openrouter([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, progress_callback, progress=progress)
     trip_jsons = generate_trips_metadatas([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, OPENAI_API_KEY, progress_callback, progress=progress)
@@ -691,9 +690,13 @@ def generate_trip_insights(trip_message_datas, openai_api_key, progress_callback
     {trip_message_datas}
     """
 
-    response_content = run_openai_inference(prompt, max_completion_tokens=130000)
-    if not response_content:
-        progress_callback(f"LLM did not return a response to generate trip insights", progress)
+    try:
+        response_content = run_openai_inference(prompt, max_completion_tokens=100000)
+        if not response_content:
+            progress_callback(f"LLM did not return a response to generate trip insights", progress)
+            return None
+    except Exception as e:
+        progress_callback(f"LLM did not return a response to generate trip insights: {e}", progress)
         return None
     
     return response_content
@@ -758,9 +761,13 @@ def generate_trips_metadatas(trip_message_datas, trip_insights, num_trips, opena
     {trip_message_datas}
     """
 
-    response_content = run_openai_inference(prompt, max_completion_tokens=130000)
-    if not response_content:
-        progress_callback(f"LLM did not return a response to generate trip insights", progress)
+    try:
+        response_content = run_openai_inference(prompt, max_completion_tokens=100000)
+        if not response_content:
+            progress_callback(f"LLM did not return a response to generate trip insights", progress)
+            return None
+    except Exception as e:
+        progress_callback(f"LLM did not return a response to generate trip insights: {e}", progress)
         return None
     
     # Try to parse the response as JSON
