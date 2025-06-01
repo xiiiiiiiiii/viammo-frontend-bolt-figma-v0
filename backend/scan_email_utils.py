@@ -38,9 +38,9 @@ FLASK_KEY = os.getenv('FLASK_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 REDIRECT_URI = os.getenv('REDIRECT_URI')
 LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
-MAX_EMAIL_CONCURRENCY = 20
+MAX_EMAIL_CONCURRENCY = 25
 MAX_AI_INFERENCE_CONCURRENCY = 100
-EMAILS_LIMIT = 3500
+EMAILS_LIMIT = 5000
 NUM_TRIPS_METADATA_TO_GENERATE = 5
 HOTEL_RESERVATION_EMAILS_BATCH_SIZE = 20
 
@@ -173,7 +173,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
     # Retrieve User data if needed:
     # name = id_info["name"]
     # picture = id_info["picture"]
-    email = id_info["email"]
+    # email = id_info["email"]
 
     # Retrieve credentials from session
     gmail_service = get_gmail_service_from_session(credentials_dict)
@@ -195,21 +195,8 @@ def scan_email(credentials_dict, id_info, progress_callback):
     progress_callback(f"Found {email_count} emails", progress)
 
     progress = increment_progress(progress)
-    progress_callback("Getting full content of hotel reservation emails...", progress)
-
-    msg_ids = [message['id'] for message in messages]
-    hotel_reservation_emails = get_full_email_batch(
-        msg_ids,
-        credentials_dict,
-        progress_callback,
-        progress=progress,
-        progress_main_message="Getting full content of hotel reservation emails..."
-    )
-
-    progress = increment_progress(progress)
-    progress_callback("Checking emails to keep only hotel reservation emails...", progress)
-    def get_prompt_is_hotel_reservation(msg_id):
-        email_metadata = hotel_reservation_emails.get(msg_id)
+    progress_callback("Getting full content of hotel reservation emails and checking if they are hotel reservations...", progress)
+    def get_prompt_is_hotel_reservation(email_metadata):
         prompt = f"""
         Here is data for an email, is it a hotel reservation confirmation with a start date,
         end date, hotel name, room type, coming from a non-personal email, etc.?
@@ -222,18 +209,15 @@ def scan_email(credentials_dict, id_info, progress_callback):
         {email_metadata}
         """
         return prompt
-    # batch_hotel_reservation_classification_full_email = batch_llm_calls(prompts)
-    batch_hotel_reservation_classification_full_email = run_openai_inference_batch_with_pool(
+    msg_ids = [message['id'] for message in messages]
+    hotel_reservation_emails = get_full_hotel_reservation_emails_batch(
+        msg_ids,
+        credentials_dict,
         get_prompt_is_hotel_reservation,
-        hotel_reservation_emails.keys(),
         progress_callback,
-        progress_main_message="Checking emails to keep only hotel reservation emails...",
-        progress=45,
-        max_completion_tokens=4096
+        progress=progress,
+        progress_main_message="Getting full content of hotel reservation emails and checking if they are hotel reservations..."
     )
-    for msg_id, is_hotel_reservation in batch_hotel_reservation_classification_full_email.items():
-        if is_hotel_reservation != "True":
-            del hotel_reservation_emails[msg_id]
     progress_callback(
         f"Filtered down to {len(hotel_reservation_emails)} hotel reservation emails.",
         progress,
@@ -241,7 +225,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
     )
 
     progress = increment_progress(progress)
-    progress_callback(f"Getting key insights from each hotel reservation email...", progress)
+    progress_callback(f"Getting key insights from each of the {len(hotel_reservation_emails)} hotel reservation email...", progress)
     def get_prompt_hotel_reservation_insights(msg_id):
         email_metadata = hotel_reservation_emails.get(msg_id)
         prompt = f"""
@@ -622,6 +606,120 @@ def get_full_email_batch(
                     progress_callback(f"{progress_main_message} Fetched {fetched_count} / {len_emails} full email contents...", progress)
             
             return email_metadata
+        
+        except HttpError as error:
+            progress_callback(f"{progress_main_message} Error fetching message {msg_id}: {error}", progress)
+            return None
+
+    # Create a thread pool with limited concurrency
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks to the executor
+        len_emails = len(msg_ids)
+        futures = {executor.submit(fetch_single_full_message, msg_id, idx, len_emails): msg_id for idx, msg_id in enumerate(msg_ids)}
+        
+        # Process results as they complete (optional)
+        for future in concurrent.futures.as_completed(futures):
+            msg_id = futures[future]
+            try:
+                # This will re-raise any exceptions from the task
+                future.result()
+            except Exception as exc:
+                progress_callback(f"Message {msg_id} generated an exception: {exc}", progress)
+    
+    return results
+
+def get_full_hotel_reservation_emails_batch(
+    msg_ids,
+    credentials_dict,
+    get_prompt_from_email_metadata_f,
+    progress_callback,
+    progress_main_message="",
+    progress=20,
+    max_workers=MAX_EMAIL_CONCURRENCY,
+    model="o4-mini",
+    max_completion_tokens=4096,
+    ):
+    """Get full email for multiple message IDs in a batch request."""
+    results = {}
+    results_lock = Lock()
+    completed_count = 0
+    
+    def fetch_single_full_message(msg_id, idx, len_emails):
+        """Process a single message and return its metadata."""
+        try:
+            gmail_service = get_gmail_service_from_session(credentials_dict)
+
+            response = gmail_service.users().messages().get(
+                userId='me',
+                id=msg_id,
+                format='full'
+            ).execute()
+        
+            # Process the response the same way as the individual method
+            headers = response['payload']['headers']
+            subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
+            date = next((h['value'] for h in headers if h['name'] == 'Date'), 'Unknown Date')
+            sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown Sender')
+            recipient = next((h['value'] for h in headers if h['name'] == 'To'), 'Unknown Recipient')
+            reply_to = next((h['value'] for h in headers if h['name'] == 'Reply-To'), 'Unknown Reply-To')
+            cc = next((h['value'] for h in headers if h['name'] == 'CC'), 'Unknown CC')
+            bcc = next((h['value'] for h in headers if h['name'] == 'BCC'), 'Unknown BCC')
+            in_reply_to = next((h['value'] for h in headers if h['name'] == 'In-Reply-To'), 'Unknown In-Reply-To')
+
+            def extract_text_from_html(html):
+                """Extract plain text from HTML content."""
+                # Remove HTML tags
+                text = re.sub(r'<[^>]+>', ' ', html)
+                # Decode HTML entities
+                text = unescape(text)
+                # Replace multiple whitespace with single space
+                text = re.sub(r'\s+', ' ', text)
+                # Remove leading/trailing whitespace
+                text = text.strip()
+                return text
+
+            def get_text_from_part(part):
+                """Recursively extract text from email parts."""
+                if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
+                    return base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                if part.get('mimeType') == 'text/html' and 'data' in part.get('body', {}):
+                    html = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                    return extract_text_from_html(html)
+                if 'parts' in part:  # Check for nested parts
+                    subpart_texts = [get_text_from_part(subpart) for subpart in part['parts']]
+                    subpart_texts = [subpart_text for subpart_text in subpart_texts if subpart_text is not None]
+                    return ' '.join(subpart_texts)
+
+            body = get_text_from_part(response['payload'])
+            body = body if body else "Unknown body"
+            
+            email_metadata = {
+                'id': msg_id,
+                'subject': subject,
+                'date': date,
+                'sender': sender,
+                'recipient': recipient,
+                'reply_to': reply_to,
+                'cc': cc,
+                'bcc': bcc,
+                'in_reply_to': in_reply_to,
+                'body': body,
+            }
+
+            # Immediately check if the email is a hotel reservation and discard rest to save memory.
+            prompt_text = get_prompt_from_email_metadata_f(email_metadata)
+            response = run_openai_inference(prompt_text, model=model, max_completion_tokens=max_completion_tokens)
+
+            nonlocal completed_count
+            completed_count += 1
+            if completed_count % max_workers == 0:
+                progress_callback(f"{progress_main_message} Fetched and checked {completed_count} / {len_emails} full email contents...", progress)
+
+            if "True" == response:
+                with results_lock:
+                    results[msg_id] = email_metadata
+            
+            return
         
         except HttpError as error:
             progress_callback(f"{progress_main_message} Error fetching message {msg_id}: {error}", progress)
