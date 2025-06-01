@@ -712,8 +712,9 @@ def get_full_hotel_reservation_emails_batch(
 
             nonlocal completed_count
             completed_count += 1
+            kept_count = len(results)
             if completed_count % max_workers == 0:
-                progress_callback(f"{progress_main_message} Fetched and checked {completed_count} / {len_emails} full email contents...", progress)
+                progress_callback(f"{progress_main_message} Fetched and checked {completed_count} / {len_emails} full email contents, {kept_count} kept...", progress)
 
             if "True" == response:
                 with results_lock:
