@@ -3,6 +3,7 @@ import json
 import traceback
 import base64
 import re
+import requests
 from html import unescape
 
 from threading import Lock
@@ -38,9 +39,10 @@ FLASK_KEY = os.getenv('FLASK_KEY')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 REDIRECT_URI = os.getenv('REDIRECT_URI')
 LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
+SMTP2GO_API_KEY = os.getenv('SMTP2GO_API_KEY')
 MAX_EMAIL_CONCURRENCY = 25
 MAX_AI_INFERENCE_CONCURRENCY = 100
-EMAILS_LIMIT = 5000
+EMAILS_LIMIT = 3500
 NUM_TRIPS_METADATA_TO_GENERATE = 5
 HOTEL_RESERVATION_EMAILS_BATCH_SIZE = 20
 
@@ -173,7 +175,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
     # Retrieve User data if needed:
     # name = id_info["name"]
     # picture = id_info["picture"]
-    # email = id_info["email"]
+    email = id_info["email"]
 
     # Retrieve credentials from session
     gmail_service = get_gmail_service_from_session(credentials_dict)
@@ -256,7 +258,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
     )
     for msg_id, hotel_reservation_insights in batch_hotel_reservation_key_insights.items():
         email_metadata = hotel_reservation_emails[msg_id]
-        # del email_metadata['body']  # If we don't have enought RAM, might be worth discarding full email body since we have key insights.
+        del email_metadata['body']  # If we don't have enought RAM, might be worth discarding full email body since we have key insights.
         email_metadata['key_insights'] = hotel_reservation_insights
     progress_callback(
         f"Completed getting key insights from each hotel reservation email...",
@@ -295,7 +297,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
     # trip_jsons = generate_trips_metadatas_cerebras_openrouter([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, progress_callback, progress=progress)
     trip_jsons = generate_trips_metadatas([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, OPENAI_API_KEY, progress_callback, progress=progress)
 
-    progress = 100
+    progress = 95
     progress_callback(
         message = f"Completed generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...",
         progress=progress,
@@ -305,35 +307,60 @@ def scan_email(credentials_dict, id_info, progress_callback):
         recommendations=trip_jsons
     )
     
-    # # Send trip insights by email
-    # send_trip_insights_by_email(gmail_service, email, trip_insights, trip_jsons)
+    # Send trip insights by email
+    progress_callback(f"Sending trip insights by email...", progress)
+    progress = 100
+    send_trip_insights_by_email(email, trip_insights, trip_jsons, progress_callback, progress=progress)
 
-def send_trip_insights_by_email(service, to_from_email, trip_insights, trip_jsons):
+
+def send_trip_insights_by_email(to_from_email, trip_insights, trip_jsons, progress_callback, progress=100):
     """Send trip insights by email."""
-    trip_jsons = json.dumps(trip_jsons, indent=4)
+    try:
+        trip_jsons = json.dumps(trip_jsons, indent=4)
+        email_body = f"""
+        Trip Insights:
+        {trip_insights}
 
-    # Create the email
-    message = EmailMessage()
-    message['To'] = to_from_email
-    message['From'] = 'me'
-    message['Subject'] = 'Trip Insights and Recommendations'
-    message.set_content(f"""
-    Trip Insights:
-    {trip_insights}
+        Trip JSONs:
+        {trip_jsons}
+        """
 
-    Trip JSONs:
-    {trip_jsons}
-    """)
+        url = "https://api.smtp2go.com/v3/email/send"
 
-    # Encode message
-    encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        payload = {
+            "api_key": SMTP2GO_API_KEY,
+            "to": [to_from_email],
+            "sender": "alexis@goviammo.com ",
+            "subject": "Trip Insights and Recommendations",
+            "text_body": email_body
+        }
 
-    # Create the message resource
-    create_message = {'raw': encoded_message}
+        headers = {
+            "Content-Type": "application/json"
+        }
 
-    # Send the email
-    sent_message = service.users().messages().send(userId="me", body=create_message).execute()
-    print(f"Message Id: {sent_message['id']}")
+        response = requests.post(url, json=payload, headers=headers)
+
+        if response.status_code != 200:
+            progress_callback(
+                message = f"Failed to send email with error: {response.text}",
+                progress=100,
+                status="failed"
+            )
+            return
+
+        progress_callback(
+            message = "Email sent successfully",
+            progress=100,
+            status="completed"
+        )
+    except Exception as e:
+        e_trace = traceback.format_exc()
+        progress_callback(
+            message = f"Failed to send email with error: {e_trace}",
+            progress=100,
+            status="failed"
+        )
     
 
 def search_emails(service, query, progress_callback, progress_main_message="", progress=5, max_results=500):
