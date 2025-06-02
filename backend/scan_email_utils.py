@@ -42,7 +42,7 @@ LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
 SMTP2GO_API_KEY = os.getenv('SMTP2GO_API_KEY')
 MAX_EMAIL_CONCURRENCY = 25
 MAX_AI_INFERENCE_CONCURRENCY = 100
-EMAILS_LIMIT = 100
+EMAILS_LIMIT = 500
 NUM_TRIPS_METADATA_TO_GENERATE = 5
 HOTEL_RESERVATION_EMAILS_BATCH_SIZE = 20
 
@@ -297,7 +297,7 @@ def scan_email(credentials_dict, id_info, progress_callback):
     # trip_jsons = generate_trips_metadatas_cerebras_openrouter([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, progress_callback, progress=progress)
     trip_jsons = generate_trips_metadatas([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, OPENAI_API_KEY, progress_callback, progress=progress)
 
-    progress = 95
+    progress = 100
     progress_callback(
         message = f"Completed generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...",
         progress=progress,
@@ -307,10 +307,10 @@ def scan_email(credentials_dict, id_info, progress_callback):
         recommendations=trip_jsons
     )
     
-    # Send trip insights by email
-    progress_callback(f"Sending trip insights by email...", progress)
-    progress = 100
-    send_trip_insights_by_email(email, trip_insights, trip_jsons, progress_callback, progress=progress)
+    # # Send trip insights by email
+    # progress_callback(f"Sending trip insights by email...", progress)
+    # progress = 100
+    # send_trip_insights_by_email(email, trip_insights, trip_jsons, progress_callback, progress=progress)
 
 
 def send_trip_insights_by_email(to_from_email, trip_insights, trip_jsons, progress_callback, progress=100):
@@ -345,21 +345,21 @@ def send_trip_insights_by_email(to_from_email, trip_insights, trip_jsons, progre
         if response.status_code != 200:
             progress_callback(
                 message = f"Failed to send email with error: {response.text}",
-                progress=100,
+                progress=progress,
                 status="failed"
             )
             return
 
         progress_callback(
             message = "Email sent successfully",
-            progress=100,
+            progress=progress,
             status="completed"
         )
     except Exception as e:
         e_trace = traceback.format_exc()
         progress_callback(
             message = f"Failed to send email with error: {e_trace}",
-            progress=100,
+            progress=progress,
             status="failed"
         )
     
