@@ -42,7 +42,7 @@ LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
 SMTP2GO_API_KEY = os.getenv('SMTP2GO_API_KEY')
 MAX_EMAIL_CONCURRENCY = 25
 MAX_AI_INFERENCE_CONCURRENCY = 100
-EMAILS_LIMIT = 3500
+EMAILS_LIMIT = 100
 NUM_TRIPS_METADATA_TO_GENERATE = 5
 HOTEL_RESERVATION_EMAILS_BATCH_SIZE = 20
 
@@ -325,18 +325,19 @@ def send_trip_insights_by_email(to_from_email, trip_insights, trip_jsons, progre
         {trip_jsons}
         """
 
-        url = "https://api.smtp2go.com/v3/email/send"
+        url = "https://api.smtp2go.com/v3/email/send" 
+
+        headers = {
+            "Content-Type": "application/json",
+            'X-Smtp2go-Api-Key': SMTP2GO_API_KEY,
+            "accept": "application/json"
+        }
 
         payload = {
-            "api_key": SMTP2GO_API_KEY,
             "to": [to_from_email],
             "sender": "alexis@goviammo.com ",
             "subject": "Trip Insights and Recommendations",
             "text_body": email_body
-        }
-
-        headers = {
-            "Content-Type": "application/json"
         }
 
         response = requests.post(url, json=payload, headers=headers)
