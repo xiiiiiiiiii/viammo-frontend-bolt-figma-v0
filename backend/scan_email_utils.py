@@ -42,7 +42,7 @@ LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
 SMTP2GO_API_KEY = os.getenv('SMTP2GO_API_KEY')
 MAX_EMAIL_CONCURRENCY = 25
 MAX_AI_INFERENCE_CONCURRENCY = 100
-EMAILS_LIMIT = 1000
+EMAILS_LIMIT = 4000
 NUM_TRIPS_METADATA_TO_GENERATE = 5
 HOTEL_RESERVATION_EMAILS_BATCH_SIZE = 20
 
@@ -50,7 +50,7 @@ def load_jsonl(file_path):
     with open(file_path, 'r') as f:
         return [json.loads(line) for line in f]
 
-# def save_to_jsonl(file_path, a_list):
+# def save_emails_to_jsonl(file_path, emails_dict):
 #     # Create directory if it doesn't exist
 #     dirname = os.path.dirname(file_path)
 #     if len(dirname.strip()) > 0:
@@ -58,10 +58,18 @@ def load_jsonl(file_path):
 
 #     # Save to JSONL file
 #     with open(file_path, 'w') as f:
-#         for item in a_list:
-#             f.write(json.dumps(item) + '\n')
+#         for _id, email in emails_dict.items():
+#             f.write(json.dumps(email) + '\n')
 
-#     print(f"Saved {len(a_list)} records to {file_path}")
+#     print(f"Saved {len(emails_dict)} emails to {file_path}")
+
+# def load_emails_from_jsonl(file_path):
+#     with open(file_path, 'r') as f:
+#         emails = {}
+#         for line in f:
+#             email = json.loads(line)
+#             emails[email['id']] = email
+#         return emails
 
 hotel_reservation_search_keywords = load_jsonl('hotel_reservation_search_keywords.jsonl')
 hotel_reservation_search_keywords = [f'"{keyword}"' for keyword in hotel_reservation_search_keywords]
@@ -177,6 +185,8 @@ def scan_email(credentials_dict, id_info, progress_callback):
     # picture = id_info["picture"]
     email = id_info["email"]
 
+    # if not os.path.exists('./email_data/v0/hotel_reservation_emails.jsonl'):
+
     # Retrieve credentials from session
     gmail_service = get_gmail_service_from_session(credentials_dict)
 
@@ -220,6 +230,10 @@ def scan_email(credentials_dict, id_info, progress_callback):
         progress=progress,
         progress_main_message="Getting full content of hotel reservation emails and checking if they are hotel reservations..."
     )
+    #     save_emails_to_jsonl('./email_data/v0/hotel_reservation_emails.jsonl', hotel_reservation_emails)
+    # else:
+    #     hotel_reservation_emails = load_emails_from_jsonl('./email_data/v0/hotel_reservation_emails.jsonl')
+    
     progress_callback(
         f"Filtered down to {len(hotel_reservation_emails)} hotel reservation emails.",
         progress,
@@ -233,8 +247,9 @@ def scan_email(credentials_dict, id_info, progress_callback):
         prompt = f"""
         Here is data for a hotel reservation email. Please extract key insights from the email:
         - hotel name
-        - check-in, check-out dates, month of year, season of year, is this a ski-week trip? a spring break trip? a summer trip? etc.
         - location of the hotel, e.g. city, state, country, etc. what type of area is it? a beach, a mountain, a city, a town, etc.
+        - check-in, check-out dates, month of year, season of year, is this a ski-week trip? a spring break trip? a summer trip?
+        - is this the typical time of the year to go to this location? e.g. February in Aspen for good snow, April in Florida for good beaches, etc.
         - number of and age of guests
         - total price, price per night, price per room, price per guest, etc.
         - is the guest a type of loyalty program member of a hotel chain? What membership level?
