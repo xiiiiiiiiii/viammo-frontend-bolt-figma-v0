@@ -179,153 +179,182 @@ def increment_progress(progress, increment=15):
     return progress
 
 def scan_email(credentials_dict, id_info, progress_callback):
+
     progress = 0
-    # Retrieve User data if needed:
-    # name = id_info["name"]
-    # picture = id_info["picture"]
-    email = id_info["email"]
+    progress_callback("Starting email scan...", progress)
 
-    # if not os.path.exists('./email_data/v0/hotel_reservation_emails.jsonl'):
+    try:
 
-    # Retrieve credentials from session
-    gmail_service = get_gmail_service_from_session(credentials_dict)
+        # Retrieve User data if needed:
+        # name = id_info["name"]
+        # picture = id_info["picture"]
+        email = id_info["email"]
 
-    progress = increment_progress(progress)
-    progress_callback("Searching for hotel reservation emails...", progress)
-    messages = search_emails(
-        gmail_service,
-        HOTEL_RESERVATION_SEARCH_QUERY,
-        progress_callback,
-        progress_main_message="Searching for hotel reservation emails...",
-        progress=progress,
-        max_results=EMAILS_LIMIT
-    )
-    if not messages or len(messages) == 0:
-        raise Exception("No emails found")
-    
-    email_count = len(messages)
-    progress_callback(f"Found {email_count} emails", progress)
+        # if not os.path.exists('./email_data/v0/hotel_reservation_emails.jsonl'):
 
-    progress = increment_progress(progress)
-    progress_callback("Getting full content of hotel reservation emails and checking if they are hotel reservations...", progress)
-    def get_prompt_is_hotel_reservation(email_metadata):
-        prompt = f"""
-        Here is data for an email, is it a hotel reservation confirmation with a start date,
-        end date, hotel name, room type, coming from a non-personal email, etc.?
-        Make sure to only keep hotel reservations (and filter out cancellations, restaurant
-        reservations and other travel related emails).
+        # Retrieve credentials from session
+        gmail_service = get_gmail_service_from_session(credentials_dict)
 
-        Just answer True or False and nothing else.
-
-        Email data:
-        {email_metadata}
-        """
-        return prompt
-    msg_ids = [message['id'] for message in messages]
-    hotel_reservation_emails = get_full_hotel_reservation_emails_batch(
-        msg_ids,
-        credentials_dict,
-        get_prompt_is_hotel_reservation,
-        progress_callback,
-        progress=progress,
-        progress_main_message="Getting full content of hotel reservation emails and checking if they are hotel reservations..."
-    )
-    #     save_emails_to_jsonl('./email_data/v0/hotel_reservation_emails.jsonl', hotel_reservation_emails)
-    # else:
-    #     hotel_reservation_emails = load_emails_from_jsonl('./email_data/v0/hotel_reservation_emails.jsonl')
-    
-    progress_callback(
-        f"Filtered down to {len(hotel_reservation_emails)} hotel reservation emails.",
-        progress,
-        emails=hotel_reservation_emails
-    )
-
-    progress = increment_progress(progress)
-    progress_callback(f"Getting key insights from each of the {len(hotel_reservation_emails)} hotel reservation email...", progress)
-    def get_prompt_hotel_reservation_insights(msg_id):
-        email_metadata = hotel_reservation_emails.get(msg_id)
-        prompt = f"""
-        Here is data for a hotel reservation email. Please extract key insights from the email:
-        - hotel name
-        - location of the hotel, e.g. city, state, country, etc. what type of area is it? a beach, a mountain, a city, a town, etc.
-        - check-in, check-out dates, month of year, season of year, is this a ski-week trip? a spring break trip? a summer trip?
-        - is this the typical time of the year to go to this location? e.g. February in Aspen for good snow, April in Florida for good beaches, etc.
-        - number of and age of guests
-        - total price, price per night, price per room, price per guest, etc.
-        - is the guest a type of loyalty program member of a hotel chain? What membership level?
-        - payment method (credit, debit, points, promotion, etc.)
-        - type of room or suite, views, great and unusual amenities like beach front, pool, gym, michelin dining, etc. (and obvious ones like free wifi, etc.)
-        - special requests made by guests (e.g. roses on arrival, baby crib, etc.)
-        - probable purpose of the trip: use the room type and number of guests to infer the purpose of the trip, e.g. business, family, couple, etc. 2 queen beds and 2 adults probably isn't a couple's getaway.
-        - any other key insights that would be helpful for a travel planner to know.
-
-        Email data:
-        {email_metadata}"
-        """
-        return prompt
-    batch_hotel_reservation_key_insights = run_openai_inference_batch_with_pool(
-        get_prompt_hotel_reservation_insights,
-        hotel_reservation_emails.keys(),
-        progress_callback,
-        progress_main_message="Getting key insights from each hotel reservation email...",
-        max_completion_tokens=8192,
-        progress=55
-    )
-    for msg_id, hotel_reservation_insights in batch_hotel_reservation_key_insights.items():
-        email_metadata = hotel_reservation_emails[msg_id]
-        del email_metadata['body']  # If we don't have enought RAM, might be worth discarding full email body since we have key insights.
-        email_metadata['key_insights'] = hotel_reservation_insights
-    progress_callback(
-        f"Completed getting key insights from each hotel reservation email...",
-        progress,
-        emails=hotel_reservation_emails
-    )
-
-    # If too much data for context window, split into batches, and cycle through them while accumulating insights.
-    progress = increment_progress(progress)
-    progress_callback(f"Summarizing insights from all hotel reservation emails...", progress)
-    all_msg_ids = list(hotel_reservation_emails.keys())
-    trip_insights = ""
-    num_batches = (len(hotel_reservation_emails) + HOTEL_RESERVATION_EMAILS_BATCH_SIZE - 1) // HOTEL_RESERVATION_EMAILS_BATCH_SIZE
-    for i in range(0, len(hotel_reservation_emails), HOTEL_RESERVATION_EMAILS_BATCH_SIZE):
-        current_batch_msg_ids = all_msg_ids[i:i + HOTEL_RESERVATION_EMAILS_BATCH_SIZE]
-        current_batch = [hotel_reservation_emails[msg_id] for msg_id in current_batch_msg_ids]
-        batch_num = i // HOTEL_RESERVATION_EMAILS_BATCH_SIZE + 1
-        progress_callback(
-            message = f"Summarizing insights from all hotel reservation emails, processing batch of {len(current_batch)} emails {batch_num}/{num_batches} ...",
+        progress = increment_progress(progress)
+        progress_callback("Searching for hotel reservation emails...", progress)
+        messages = search_emails(
+            gmail_service,
+            HOTEL_RESERVATION_SEARCH_QUERY,
+            progress_callback,
+            progress_main_message="Searching for hotel reservation emails...",
             progress=progress,
-            trip_insights=trip_insights
+            max_results=EMAILS_LIMIT
         )
+        if not messages or len(messages) == 0:
+            raise Exception("No emails found")
+        
+        email_count = len(messages)
+        progress_callback(f"Found {email_count} emails", progress)
 
-        # Call generate_trip_insights with the current batch and existing insights
-        trip_insights = generate_trip_insights(
-            current_batch,
-            OPENAI_API_KEY,
+        progress = increment_progress(progress)
+        progress_callback("Getting full content of hotel reservation emails and checking if they are hotel reservations...", progress)
+        def get_prompt_is_hotel_reservation(email_metadata):
+            prompt = f"""
+            Here is data for an email, is it a hotel reservation confirmation with a start date,
+            end date, hotel name, room type, coming from a non-personal email, etc.?
+            Make sure to only keep hotel reservations (and filter out cancellations, restaurant
+            reservations and other travel related emails).
+
+            Just answer True or False and nothing else.
+
+            Email data:
+            {email_metadata}
+            """
+            return prompt
+        msg_ids = [message['id'] for message in messages]
+        hotel_reservation_emails = get_full_hotel_reservation_emails_batch(
+            msg_ids,
+            credentials_dict,
+            get_prompt_is_hotel_reservation,
             progress_callback,
             progress=progress,
-            existing_trip_insights = trip_insights  # Pass the accumulated insights
+            progress_main_message="Getting full content of hotel reservation emails and checking if they are hotel reservations..."
+        )
+        #     save_emails_to_jsonl('./email_data/v0/hotel_reservation_emails.jsonl', hotel_reservation_emails)
+        # else:
+        #     hotel_reservation_emails = load_emails_from_jsonl('./email_data/v0/hotel_reservation_emails.jsonl')
+        
+        progress_callback(
+            f"Filtered down to {len(hotel_reservation_emails)} hotel reservation emails.",
+            progress,
+            emails=hotel_reservation_emails
         )
 
-    progress = increment_progress(progress)
-    progress_callback(f"Generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...", progress, trip_insights=trip_insights)
-    # hotel_reservation_key_insights # If too much data for context window, just send summarized trip_insights, works pretty well.
-    # trip_jsons = generate_trips_metadatas_cerebras_openrouter([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, progress_callback, progress=progress)
-    trip_jsons = generate_trips_metadatas([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, OPENAI_API_KEY, progress_callback, progress=progress)
+        # if not os.path.exists('./email_data/v0/hotel_reservation_emails_key_insights.jsonl'):
 
-    progress = 100
-    progress_callback(
-        message = f"Completed generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...",
-        progress=progress,
-        status="completed",
-        emails=hotel_reservation_emails,
-        trip_insights=trip_insights,
-        recommendations=trip_jsons
-    )
-    
-    # # Send trip insights by email
-    # progress_callback(f"Sending trip insights by email...", progress)
-    # progress = 100
-    # send_trip_insights_by_email(email, trip_insights, trip_jsons, progress_callback, progress=progress)
+        progress = increment_progress(progress)
+        progress_callback(f"Getting key insights from each of the {len(hotel_reservation_emails)} hotel reservation email...", progress)
+        def get_prompt_hotel_reservation_insights(msg_id):
+            email_metadata = hotel_reservation_emails.get(msg_id)
+            prompt = f"""
+            Here is data for a hotel reservation email. Please extract key insights from the email:
+            - hotel name
+            - (super important) for location, is there something going on at that time of the year? e.g. Coachella Music Festival, Cannes Film Festival, Art Basel Miami, Vancouver TED Conference, etc.
+            - location of the hotel, e.g. city, state, country, etc. what type of area is it? beach front, ski-in-ski-out, desert, jungle, country side, etc.
+            - Is hotel close to an famous activity? Disney World, Grand Canyon, Vegas casinos, Rome Colosseum, Great Pyramids of Giza, Taj Mahal in India, Great Wall of China, Serengeti National Park, Borneo Rainforest, Amalfi Coast, Alps, Great Barrier Reef, Teahupo'o surf spot, Nürburgring race track, Ibiza partying, California Esalen hot springs, Sedona yoga retreat, Vipassana meditation retreat, etc.
+            - What is location known for? e.g. golfing in Scotland, skiing in Aspen, surfing in Bali, etc. Does hotel make it easy to do these activities?
+            - check-in, check-out dates, month of year, season of year, is this a ski-week trip? a spring break trip? a summer trip?
+            - is this the typical time of the year to go to this location? e.g. February in Aspen for good snow, April in Florida for good beaches, etc.
+            - number of and age of guests, adults, children, seniors, dogs or pets, etc.
+            - total price, price per night, price per room, price per guest, etc.
+            - what is price category of hotel? e.g. "$$$$", "$$$", "$", "$", etc. Is it hyper luxury "$$$$$"?
+            - is the guest a type of loyalty program member of a hotel chain? What membership level?
+            - payment method (credit, debit, points, promotion, etc.)
+            - number and type of room (e.g. 1 room with king and 1 room with 2 queens, etc.), 2 room suite each with two queens, premium view (e.g. ocean view, city view, etc.), connecting rooms, 3+ room suite, 3+ room standalone villa, etc.
+            - surprising amenities like beach front, private pool for each room, michelin dining, hot water springs, etc.
+            - don't include obvious amenities like high speed wifi, TV, parking, etc.
+            - unusual dining experiences e.g. michelin star, exclusively raw dining, etc.
+            - specific hotel, e.g. Ritz-Carlton in Costa Rica, Four Seasons in Bali, etc.
+            - what type of hotel chain is it? e.g. Hilton, Marriott, Hyatt, St. Regis, Rosewood, Relais & Chateaux, Four Seasons, Leading Hotels of the World, etc.
+            - what type of hotel is it? e.g. hotel, resort, villa, cabin, family, romantic, spa/wellness, casino, airport hotel, business, etc.
+            - what type of hotel style is it? e.g. historical, modern/contemporary, boutique, luxury, hyper-luxury, eco/green, surprising (e.g., treehouse rooms, igloos, etc.), themed (e.g., fantasy, movie, space) like Disney’s themed resorts, etc.
+            - special requests made by guests (e.g. roses on arrival, baby crib, dog bed and bowls, etc.)
+            - probable purpose of the trip: use the room type and number of guests to infer the purpose of the trip, e.g. business, family, couple, etc. 2 queen beds and 2 adults probably isn't a couple's getaway.
+            - any other key insights that would be helpful for a travel planner to know.
+
+            Email data:
+            {email_metadata}"
+            """
+            return prompt
+        batch_hotel_reservation_key_insights = run_openai_inference_batch_with_pool(
+            get_prompt_hotel_reservation_insights,
+            hotel_reservation_emails.keys(),
+            progress_callback,
+            progress_main_message="Getting key insights from each hotel reservation email...",
+            max_completion_tokens=8192,
+            progress=55
+        )
+        for msg_id, hotel_reservation_insights in batch_hotel_reservation_key_insights.items():
+            email_metadata = hotel_reservation_emails[msg_id]
+            del email_metadata['body']  # If we don't have enought RAM, might be worth discarding full email body since we have key insights.
+            email_metadata['key_insights'] = hotel_reservation_insights
+        #     save_emails_to_jsonl('./email_data/v0/hotel_reservation_emails_key_insights.jsonl', hotel_reservation_emails)
+        # else:
+        #     hotel_reservation_emails = load_emails_from_jsonl('./email_data/v0/hotel_reservation_emails_key_insights.jsonl')
+        
+        progress_callback(
+            f"Completed getting key insights from each hotel reservation email...",
+            progress,
+            emails=hotel_reservation_emails
+        )
+
+        # If too much data for context window, split into batches, and cycle through them while accumulating insights.
+        progress = increment_progress(progress)
+        progress_callback(f"Summarizing insights from all hotel reservation emails...", progress)
+        all_msg_ids = list(hotel_reservation_emails.keys())
+        trip_insights = ""
+        num_batches = (len(hotel_reservation_emails) + HOTEL_RESERVATION_EMAILS_BATCH_SIZE - 1) // HOTEL_RESERVATION_EMAILS_BATCH_SIZE
+        for i in range(0, len(hotel_reservation_emails), HOTEL_RESERVATION_EMAILS_BATCH_SIZE):
+            current_batch_msg_ids = all_msg_ids[i:i + HOTEL_RESERVATION_EMAILS_BATCH_SIZE]
+            current_batch = [hotel_reservation_emails[msg_id] for msg_id in current_batch_msg_ids]
+            batch_num = i // HOTEL_RESERVATION_EMAILS_BATCH_SIZE + 1
+            progress_callback(
+                message = f"Summarizing insights from all hotel reservation emails, processing batch of {len(current_batch)} emails {batch_num}/{num_batches} ...",
+                progress=progress,
+                trip_insights=trip_insights
+            )
+
+            # Call generate_trip_insights with the current batch and existing insights
+            trip_insights = generate_trip_insights(
+                current_batch,
+                OPENAI_API_KEY,
+                progress_callback,
+                progress=progress,
+                existing_trip_insights = trip_insights  # Pass the accumulated insights
+            )
+
+        progress = increment_progress(progress)
+        progress_callback(f"Generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...", progress, trip_insights=trip_insights)
+        # hotel_reservation_key_insights # If too much data for context window, just send summarized trip_insights, works pretty well.
+        # trip_jsons = generate_trips_metadatas_cerebras_openrouter([], trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, progress_callback, progress=progress)
+        trip_jsons = generate_trips_metadatas(trip_insights, NUM_TRIPS_METADATA_TO_GENERATE, OPENAI_API_KEY, progress_callback, progress=progress)
+
+        progress = 100
+        progress_callback(
+            message = f"Completed generating up to {NUM_TRIPS_METADATA_TO_GENERATE} trip recommendations...",
+            progress=progress,
+            status="completed",
+            emails=hotel_reservation_emails,
+            trip_insights=trip_insights,
+            recommendations=trip_jsons
+        )
+        
+        # # Send trip insights by email
+        # progress_callback(f"Sending trip insights by email...", progress)
+        # progress = 100
+        # send_trip_insights_by_email(email, trip_insights, trip_jsons, progress_callback, progress=progress)
+    except Exception as e:
+        e_trace = traceback.format_exc()
+        progress_callback(
+            message = f"Failed to generate trip recommendations with error: {e_trace}",
+            progress=progress,
+            status="failed"
+        )
 
 
 def send_trip_insights_by_email(to_from_email, trip_insights, trip_jsons, progress_callback, progress=100):
@@ -796,42 +825,63 @@ def generate_trip_insights(trip_message_datas, openai_api_key, progress_callback
         return None
     
     # Define a prompt template for hotel characteristics
+    # - loyalty program, e.g. Marriott Bonvoy, Hilton Honors, etc.
+    # - payment method, e.g. loyalty points, gift cards, etc.
     prompt = f"""
-    Based on the following hotel reservation email messages and the existing trip insights, please analyze the typical patterns of
-    the user's travel preferences and generate a list of types of trips that the user has taken. For each type of trip, include the
-    following key information:
-    - destination
-    - time of year, e.g. ski week, spring break, summer, end of year holidays, Thanksgiving, Memorial Day, Labor Day, etc.
-    - length of the trip
-    - number of guests and type of guests, e.g. adults, children, infants, etc.
-    - number of times the user did a similar trip
-    - likely purpose of the trip
-    - total budget with $ signs, e.g. "$$$$",  "$$$", "$$", "$", etc. with "$$$$" being the highest budget.
-    - preferred hotel, keep specifics e.g. "Hilton Honolulu", "Hyatt Waikiki", "St. Regis San Francisco", etc.
-    - preferred hotel chains, keep specifics e.g. "Hilton", "Marriott", "Hyatt", "St. Regis", "Rosewood", "Relais & Chateaux", "Four Seasons", "Leading Hotels of the World", etc.
-    - preferred hotel characteristics, keep specifics e.g. "family friendly", "ski-in-ski-out", "beach front", "pool", "gym", "spa", "free Wi-Fi", "free breakfast", "free airport shuttle", "free parking", etc.
-    - preferred room types, keep specifics e.g. "1 King bed Suite", "1 room with King bed and 1 room with 2 queens", "2 Queen beds", "Crib", "Pool view", "Garden view", "Ocean view", "Mountain view", etc.
-    - preferred amenities, keep specifics e.g. "ski-in-ski-out", "beach front", "pool", "gym", "spa", "free Wi-Fi", "free breakfast", "free airport shuttle", "free parking", etc.
-    - preferred activities, keep specifics e.g. "skiing", "snowboarding", "hiking", "surfing", "golfing", "scuba diving", "snorkeling", "water sports", "etc."
-    - preferred dining experiences, keep specifics e.g. "fine dining", "casual dining", "cafe", "pub", "italian", "japanese", "mexican", "etc."
-    - preferred payment method, keep specifics e.g. "credit card", "debit card", "hyatt points", "marriott points", "etc."
-    - key details from each trip in this trip type
-    - any other information that would be helpful for a travel planner to know.
 
-    Try to generate 5-10 trip types with at least 3 trips per trip type unless you don't have enough trips. If you don't have enough
-    trips, start by creating trip types based off of individual trips.
+    Try to generate 5-10 group of trips with at least 3 trips per group unless you don't have enough trips. If you don't have enough
+    trips, start by creating trip groups based off of individual trips. Track and rank features by most important, surprising, or repeating 
+    features, keep as much detail as possible.
 
-    If you already have generated some trip insights, please add new trip types or merge existing trip types. When merging trip type
-    information, make sure to keep track of the total number of days for all trips in that trip type, and any other salient details.
-    Rank your trip types with a higher total number of days and total number of trips higher in your list. Keep the number of trip types
-    between below or equal to 10.
+    If you also get previously generated trip groups, please either:
+    - merge existing trip groups
+    - reshuffle trip groups
+    - create new trip groups
+    - don't just list what new trips to add to existing trip groups, please relist full self-contained trip groups from scratch every time
+    For each group of trips, keep track of each one of their trips and for each trip, keep track of their top 10 most important, surprising, or repeating
+    features so that each trip can easily be merged or reshuffled into other trip groups. Please also track total number of deduped days and total number of trips
+    for each trip group. Trip features marked as (important) or (super important) should always be listed for that trip and its trip group with (super important)
+    listed first. When merging or reshuffling trip groups, make sure to keep all the trips (old and new) long with all the features of each trip in that group. Don't
+    add the same trip in multiple groups (check for overlapping dates and location). Also don't add the same trip multiple times in the same group (check for overlapping
+    dates and location). Rank your trip groups by descending most important, surprising, or repeating features as well as total number of deduped days and total number
+    of trips. Keep the number of trip groups to 15 or less. A single hotel reservation can be a trip group if it has enough days. When merging or reshuffling trip groups,
+    make sure not to delete any information that would be helpful for a travel planner to know. Feel free to rerank trips as you add, merge and reshuffle trip groups.
+    When reshuffling, feel free to move trips to different trip groups that would be a better match. Use important, surprising and repeating features to create a title for trip group.
 
-    You're output should be a self-sufficient list of trip types and their key information (not just an addition to an existing list
-    of trip insights).
+    You can group trips with the following features:
+    - (super important) for location, is there something going on at that time of the year? e.g. Coachella Music Festival, Cannes Film Festival, Art Basel Miami, Vancouver TED Conference, etc.
+    - (super important) close in dates (not further than 6 days apart) and location by car/train/airplane, e.g. Mar 24-28 2024 in Florence Italy and Mar 26-30 2024 in Pisa Italy, or Apr 14-18 2023 in Rome Italy and Apr 20-23 2023 in Paris France
+    - (super important) what is location known for and does hotel make it easy to do it? e.g. golfing in Scotland, skiing in Aspen, surfing in Bali, etc.
+    - (important) number and types of rooms, number and type of beds, with room specifics, e.g. 1 room with 1 king connecting to 1 room with 2 queens, 2 room suite each with two queens, king bed premium ocean view (e.g. ocean view, city view, etc.), 3+ room suite, 3+ room standalone villa, etc.
+    - (important) number of and age of guests, adults, children, seniors, dogs or pets, etc. How does this work with beds and rooms? e.g. 2 adults in king room and 2 children in room with 2 queens, etc.
+    - (important) repeating in season, e.g. Thanksgiving trips, Summer trips, etc. 
+    - (important) for location, is it peak season, shoulder season, off season? e.g. February in Aspen is peak, August in Florida is off peak, etc.
+    - (important) special requests made by guests, e.g. roses on arrival, baby crib, dog bed and bowls, etc.
+    - surprising higher level trip theme, e.g. ancient Rome trip, surf trip, yoga retreat trip, wildlife trip, racing trip, jungle trip, desert trip, Art Basel trip, etc.
+    - price category of hotel? e.g. "$$$$", "$$$", "$", "$", etc. Is it always hyper luxury "$$$$$"?
+    - surprising amenities like surf spot beach front, private pool for each room, michelin dining, hot water springs, etc.
+    - don't include obvious amenities like high speed wifi, TV, parking, etc.
+    - unusual dining experiences e.g. michelin star, exclusively raw dining, etc.
+    - specific hotel, e.g. Ritz-Carlton in Costa Rica, Four Seasons in Bali, etc.
+    - hotel chains, keep specifics e.g. "Hilton", "Marriott", "Hyatt", "St. Regis", "Rosewood", "Relais & Chateaux", "Four Seasons", "Leading Hotels of the World", etc.
+    - unusual type of hotel, e.g. villa only, cabin only, family only, adult only, romantic only, spa/wellness only, casino only, airport hotel only, business only, etc.
+    - unusual hotel styles, e.g. historical, modern/contemporary, boutique, luxury, hyper-luxury, eco/green, surprising (e.g., treehouse rooms, igloos, etc.), themed (e.g., fantasy, movie, space) like Disney’s themed resorts, etc.
+    - probable purpose of the trip: use the room type and number of guests to infer the purpose of the trip, e.g. business, family, couple, etc. 2 queen beds and 2 adults probably isn't a couple's getaway.
+    - any other key insights that would be helpful for a travel planner to know.
 
-    Return just list of the types of trips and their key information (as highlighted above).
+    You're output should be a self-contained list of trip groups and their top 10 important, surprising, or repeating features. Each trip group should list all its
+    trips, and each trip should list all its features (not just an addition to an existing list of trip groups, and not just an addition of trips to an existing trip group).
 
-    Here is the existing trip insights you have already started to generate:
+    Don't summarize by adding things like the following to your output:
+    - "[**Original 7 trips (as previously listed) remain unchanged, now plus…**]"
+    - "Trip 16b20d83f41e0117 The Montcalm London Marble Arch, UK (Jun 29 to Jun 30 2019) [10 features as original]"
+    Just relist everything from scratch everytime even if unchanged. If you need to save space, remove less important features from each trip.
+
+    Don't remove entire trip groups. Don't remove entire trips from trip groups.
+
+    Return just list of the trip groups and their key information (as highlighted above).
+
+    Here is the existing trip groups you have already started to generate:
     {existing_trip_insights}
 
     Here are the new hotel reservation emails you need to analyze:
@@ -849,7 +899,7 @@ def generate_trip_insights(trip_message_datas, openai_api_key, progress_callback
     
     return response_content
 
-def generate_trips_metadatas(trip_message_datas, trip_insights, num_trips, openai_api_key, progress_callback, progress=100) -> str:
+def generate_trips_metadatas(trip_insights, num_trips, openai_api_key, progress_callback, progress=100) -> str:
     """
     Returns a list of trip information JSON objects.
     """
@@ -860,27 +910,38 @@ def generate_trips_metadatas(trip_message_datas, trip_insights, num_trips, opena
         
     # Define a prompt template for hotel characteristics
     prompt = f"""
-    Based on the following hotel reservation email messages and the following trip insights, please analyze the typical patterns of the user's
-    travel preferences and generate a list of great future possile trips as a json list of distionaries with up to {num_trips} trip objects like
-    the one below corresponding to the user's travel preferences. Please only return valid JSON and nothing else - no explanations or text before
-    or after the JSON. Please only use the json fields that are present in the example trip json objects below - don't add extra json fields, add
-    extra info in notes field for example. Make sure the dates are in the future and correspond to the preferred destinations.
+    Based on the trip insights below, please suggest {num_trips} future trips as a json list of distionaries like the one below corresponding
+    to the user's travel preferences. Please only return valid JSON and nothing else - no explanations or text before or after the JSON.
+    Please only use the json fields that are present in the example trip json objects below - don't add extra json fields, add extra info in notes field for example.
+    If you need to add more specifics, please add them to the notes field.
+
+    Requirements:
+    - Make sure the dates are in the future.
+    - Either recommend a trip that was already completed many times (e.g. repeating yearly trip), or recommend a trip that is new but that the user would like, e.g. you'd like Bora Bora since you like beach vacations.
+    - do your best to combine reasons why the user would love the trip, e.g. Go to Art Basel Miami and swing by Disney World since you're in Florida.
 
     Make sure to find and account for the following information in the trip json objects:
-    - preferred destinations
-    - preferred travel dates for preferred destinations
-    - number of guests and type of guests for those preferred destinations and dates, try using age of guests to determine if they are adults or children.
-    - purpose of the trip, e.g. "Family vacation", "Business trip", "Solo travel", "Couple's getaway", etc. Try using past room types for preferred destinations to determine purpose, e.g. 1 room with 2 queen beds probably isn't a couple's getaway purpose trip.
-    - total budget with $ signs, e.g. "$$$$",  "$$$", "$$", "$", etc. with "$$$$" being the highest budget.
-    - Preferred hotel characteristics to add to notes field, e.g. "Family friendly", "Ski-in-ski-out", "Beachfront", "Business class", etc.
-    - Preferred hotel chains to add to notes field, e.g. "Hilton", "Marriott", "Hyatt", "St. Regis", "Rosewood", "Relais & Chateaux", "Four Seasons", "Leading Hotels of the World", etc.
-    - Preferred room types to add to notes field, e.g. "1 King bed Suite", "1 room with King bed and 1 room with 2 queens", "2 Queen beds", "Crib", "Pool view", "Garden view", "Ocean view", "Mountain view", etc.
-    - Preferred amenities to add to notes field, e.g. "Free Wi-Fi", "Free breakfast", "Free airport shuttle", "Free parking", "Free Wi-Fi", "Free breakfast", "Free airport shuttle", "Free parking", etc.
-    - Preferred hotel features to add to notes field, e.g. "Spa", "Gym", "Pool", "Beachfront", "Ski-in-ski-out", "Walkable", "Ocean view", "Mountain view", "Garden view", etc.
-    - Preferred activities to add to notes field, e.g. "Hiking", "Skiing", "Cross Country Skiing", "Backcountry Skiing & Snowboarding", "Surfing", "Golfing", "Scuba diving", "Snorkeling", "Water sports", "Sailing", "Fishing", "etc."
-    - Preferred dining experiences to add to notes field, e.g. "Fine dining", "Casual dining", "Fast food", "Cafe", "Bar", "Pub", "Italian", "Japanese", "Mexican", "American", "French", "Spanish", "etc."
-    - Preferred children activities to add to notes field, e.g. "Kids club", "Kids activities", "Kids pool", "Kids spa", "Kids gym", "Kids beach", "Kids mountain", "Kids garden", "etc."
-    - any other information that would be helpful for a travel planner to know.
+    - (super important) for location, is there something going on at that time of the year? e.g. Coachella Music Festival, Cannes Film Festival, Art Basel Miami, Vancouver TED Conference, etc.
+    - (important) close in dates and location by car/train/airplane, e.g. Mar 24-28 2024 in Florence Italy and Mar 26-30 2024 in Pisa Italy, or Apr 14-18 2023 in Rome Italy and Apr 20-23 2023 in Paris France
+    - (important) repeating in season, e.g. Thanksgiving trips, Summer trips, etc. 
+    - (important) what is location known for and does hotel make it easy to do it? e.g. golfing in Scotland, skiing in Aspen, surfing in Bali, etc.
+    - (important) for location, is it peak season, shoulder season, off season? e.g. February in Aspen is peak, August in Florida is off peak, etc.
+    - (important) number and type of room (e.g. 1 room with king and 1 room with 2 queens, etc.), 2 room suite each with two queens, premium view (e.g. ocean view, city view, etc.), connecting rooms, 3+ room suite, 3+ room standalone villa, etc.
+    - (important) special requests made by guests, e.g. roses on arrival, baby crib, dog bed and bowls, etc.
+    - (important) number of and age of guests, adults, children, seniors, dogs or pets, etc.
+    - surprising higher level trip theme, e.g. ancient Rome trip, surf trip, yoga retreat trip, wildlife trip, racing trip, jungle trip, desert trip, Art Basel trip, etc.
+    - price category of hotel? e.g. "$$$$", "$$$", "$", "$", etc. Is it always hyper luxury "$$$$$"?
+    - loyalty program, e.g. Marriott Bonvoy, Hilton Honors, etc.
+    - payment method, e.g. loyalty points, gift cards, etc.
+    - surprising amenities like surf spot beach front, private pool for each room, michelin dining, hot water springs, etc.
+    - don't include obvious amenities like high speed wifi, TV, parking, etc.
+    - unusual dining experiences e.g. michelin star, exclusively raw dining, etc.
+    - specific hotel, e.g. Ritz-Carlton in Costa Rica, Four Seasons in Bali, etc.
+    - hotel chains, keep specifics e.g. "Hilton", "Marriott", "Hyatt", "St. Regis", "Rosewood", "Relais & Chateaux", "Four Seasons", "Leading Hotels of the World", etc.
+    - unusual type of hotel, e.g. villa only, cabin only, family only, adult only, romantic only, spa/wellness only, casino only, airport hotel only, business only, etc.
+    - unusual hotel styles, e.g. historical, modern/contemporary, boutique, luxury, hyper-luxury, eco/green, surprising (e.g., treehouse rooms, igloos, etc.), themed (e.g., fantasy, movie, space) like Disney’s themed resorts, etc.
+    - probable purpose of the trip: use the room type and number of guests to infer the purpose of the trip, e.g. business, family, couple, etc. 2 queen beds and 2 adults probably isn't a couple's getaway.
+    - any other key insights that would be helpful for a travel planner to know.
 
     Example returned list of with 1 trip object (up to {num_trips} great):
     [
@@ -904,9 +965,6 @@ def generate_trips_metadatas(trip_message_datas, trip_insights, num_trips, opena
 
     Here are the trip insights you have already generated:
     {trip_insights}
-
-    Trip message datas:
-    {trip_message_datas}
     """
 
     try:
