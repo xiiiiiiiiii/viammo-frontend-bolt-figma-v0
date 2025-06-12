@@ -43,7 +43,7 @@ LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
 SMTP2GO_API_KEY = os.getenv('SMTP2GO_API_KEY')
 MAX_EMAIL_CONCURRENCY = 25
 MAX_AI_INFERENCE_CONCURRENCY = 100
-EMAILS_LIMIT = 4000
+EMAILS_LIMIT = 100 # 4000
 NUM_TRIPS_METADATA_TO_GENERATE = 5
 HOTEL_RESERVATION_EMAILS_BATCH_SIZE = 20
 MAX_EMAILS_TO_GROUP = 140
@@ -195,7 +195,7 @@ def get_gmail_service_from_session(credentials_dict):
     gmail_service = build('gmail', 'v1', credentials=credentials)
     return gmail_service
 
-def increment_progress(progress, increment=15):
+def increment_progress(progress, increment=10):
     progress = min(100, progress + increment)
     return progress
 
@@ -1031,7 +1031,8 @@ def generate_trips_metadatas(trip_insights, num_trips, openai_api_key, progress_
     - If you can't find a trip that is new but that the user would like, recommend a trip or event trip that was already completed many times (e.g. repeating yearly trip).
     - make sure to account for features in order of importance
     - only one type of trip, e.g. only one beach trip, one ski trip, one city trip, etc.
-    - do your best to combine reasons based on previous trips on why the user would love the trip based on trip groups below. You should also have a reason for why you chose those dates (e.g. it's a school break for families, etc.). Have at least 2 reasons per trip. Add reasons in the "reasons" field.
+    - do your best to combine reasons based on previous trips on why the user would love the trip based on trip groups below. It needs to make sense, e.g. recommend a ski trip only if you saw a previous ski trip (if they don't know how to ski, they'll hate that recommendation), recommend a cultural trip if you saw a previous cultural trip, etc.
+    - You should also have a reason for why you chose those dates (e.g. it's a school break for families, there is a popular event at that time in that location, etc.). Have at least 2 reasons per trip. Add reasons in the "reasons" field.
     
     Make sure to reason about number of and age of guests, e.g.
     - trips to special events like Coachella Music Festival, Cannes Film Festival, Art Basel Miami, Vancouver TED Conference, etc. are mostly for adults. If including children, make sure to account for the children's age and add reasons to go on trip for them too.
@@ -1083,7 +1084,12 @@ def generate_trips_metadatas(trip_insights, num_trips, openai_api_key, progress_
         }}
     ]
 
-    Here are the trip insights you have already generated:
+    Here are the trip groups for the user that you have already generated, use these to ground your recommendations e.g.
+    - don't recommend a ski trip if you don't see a ski trip below
+    - don't recommend a music festival trip if you don't see a music festival trip below
+    - don't recommend a trip for 4 people if you only see reservations for 2 people below
+    - etc.
+    Trip groups:
     {trip_insights}
     """
 
