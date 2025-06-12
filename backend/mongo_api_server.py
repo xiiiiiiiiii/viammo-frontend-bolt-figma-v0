@@ -359,6 +359,8 @@ def google_logged_in_scan_email_status_str(task_id):
                 out += f"   BCC: {email_data['bcc']}<br>"
                 out += f"   In-Reply-To: {email_data['in_reply_to']}<br>"
                 out += f"   Id: {email_data['id']}<br>"
+                out += f"   Stay Length: {email_data.get('stay_length', '')}<br>"
+                out += f"   Stay Year: {email_data.get('stay_year', '')}<br>"
                 key_insights = email_data.get('key_insights', 'generation in progress...').replace('\n', '<br>')
                 out += f"   Key Insights: {key_insights}<br>"
                 out += "-" * 80
