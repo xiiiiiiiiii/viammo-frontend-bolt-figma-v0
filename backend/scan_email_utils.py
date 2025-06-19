@@ -43,7 +43,7 @@ REDIRECT_URI = os.getenv('REDIRECT_URI')
 LOGGED_IN_REDIRECT_URI = os.getenv('LOGGED_IN_REDIRECT_URI')
 SMTP2GO_API_KEY = os.getenv('SMTP2GO_API_KEY')
 MAX_EMAIL_CONCURRENCY = 25
-MAX_AI_INFERENCE_CONCURRENCY = 25
+MAX_AI_INFERENCE_CONCURRENCY = 10
 EMAILS_LIMIT = 4000
 NUM_TRIPS_METADATA_TO_GENERATE = 5
 HOTEL_RESERVATION_EMAILS_BATCH_SIZE = 20
@@ -479,7 +479,7 @@ def send_trip_insights_by_email(service, to_from_email, all_email_data, progress
         message['To'] = to_from_email
         message['From'] = 'me'
         message['Subject'] = 'Trip Recommendations, Past Trip Insights, and Hotel Reservation Emails'
-        formatted_all_email_data = format_all_email_data(all_email_data)
+        formatted_all_email_data = format_all_email_data(all_email_data, add_individual_email_metadata=False)
         message.add_alternative(formatted_all_email_data, subtype='html')
         # message.set_content(formatted_all_email_data) # if content is text
 
@@ -509,7 +509,7 @@ def send_trip_insights_by_email(service, to_from_email, all_email_data, progress
             status="failed"
         )
 
-def format_all_email_data(all_email_data):
+def format_all_email_data(all_email_data, add_individual_email_metadata=True):
     """Format all email data."""
 
     if not all_email_data:
@@ -545,29 +545,30 @@ def format_all_email_data(all_email_data):
     else:
         out += "generation in progress...<br>"
     
-    emails = all_email_data.get("emails", None)
-    out += "<br>=== Emails ===<br>"
-    if emails:
-        out += f"{len(emails)} hotel reservation emails found.<br><br>"
-        for email_data in emails.values():
-            out += f"Email Subject: {email_data['subject']}<br>"
-            out += f"   From: {email_data['sender']}<br>"
-            out += f"   Date: {email_data['date']}<br>"
-            out += f"   To: {email_data['recipient']}<br>"
-            out += f"   Reply-To: {email_data['reply_to']}<br>"
-            out += f"   CC: {email_data['cc']}<br>"
-            out += f"   BCC: {email_data['bcc']}<br>"
-            out += f"   In-Reply-To: {email_data['in_reply_to']}<br>"
-            out += f"   Id: {email_data['id']}<br>"
-            out += f"   Stay Length: {email_data.get('stay_length', '')}<br>"
-            out += f"   Stay Year: {email_data.get('stay_year', '')}<br>"
-            key_insights = email_data.get('key_insights', 'generation in progress...').replace('\n', '<br>')
-            out += f"   Key Insights: {key_insights}<br>"
-            out += "-" * 80
-            out += "<br>"
-        out += "<br>=============================<br>"
-    else:
-        out += "collection in progress...<br>"
+    if add_individual_email_metadata:
+        emails = all_email_data.get("emails", None)
+        out += "<br>=== Emails ===<br>"
+        if emails:
+            out += f"{len(emails)} hotel reservation emails found.<br><br>"
+            for email_data in emails.values():
+                out += f"Email Subject: {email_data['subject']}<br>"
+                out += f"   From: {email_data['sender']}<br>"
+                out += f"   Date: {email_data['date']}<br>"
+                out += f"   To: {email_data['recipient']}<br>"
+                out += f"   Reply-To: {email_data['reply_to']}<br>"
+                out += f"   CC: {email_data['cc']}<br>"
+                out += f"   BCC: {email_data['bcc']}<br>"
+                out += f"   In-Reply-To: {email_data['in_reply_to']}<br>"
+                out += f"   Id: {email_data['id']}<br>"
+                out += f"   Stay Length: {email_data.get('stay_length', '')}<br>"
+                out += f"   Stay Year: {email_data.get('stay_year', '')}<br>"
+                key_insights = email_data.get('key_insights', 'generation in progress...').replace('\n', '<br>')
+                out += f"   Key Insights: {key_insights}<br>"
+                out += "-" * 80
+                out += "<br>"
+            out += "<br>=============================<br>"
+        else:
+            out += "collection in progress...<br>"
     
     return out
 
