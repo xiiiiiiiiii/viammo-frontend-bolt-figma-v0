@@ -269,6 +269,7 @@ def google_logged_in_scan_email():
             tasks[task_id]["trip_insights"] = trip_insights
         if recommendations is not None:
             tasks[task_id]["recommendations"] = recommendations
+        return tasks[task_id]
 
     executor.submit(scan_email_utils.scan_email, session['credentials'], session["id_info"], progress_callback)
 
@@ -315,61 +316,10 @@ def google_logged_in_scan_email_status_str(task_id):
         if task is None or len(task) == 0:
             return "Invalid task ID", 404
         
-        out = ""
-        out += "<br>REFRESH PAGE TO GET LATEST STATUS<br>"
-        out += "<br>=== Status =======<br>"
-        out += task.get("status", "unknown")
-        out += "<br>===================<br>"
+        out = scan_email_utils.format_all_email_data(task)
 
-        out += "<br>=== Progress =======<br>" 
-        out += f'{str(task.get("progress", "unknown"))}%'
-        out += "<br>===================<br>"
-
-        out += "<br>=== Message =======<br>"
-        out += task.get("message", "unknown")
-        out += "<br>===================<br>"
-
-        out += "<br>=== Generated Trip Insights ===<br>"
-        trip_insights = task.get("trip_insights", None)
-        if trip_insights:
-            out += trip_insights.replace('\n', '<br>')
-            out += "<br>===============================<br>"
-        else:
-            out += "generation in progress...<br>"
-        
-        recommendations = task.get("recommendations", None)
-        out += "<br>=== Generated Recommendations ===<br>"
-        if recommendations:
-            out += json.dumps(recommendations, indent=4).replace('\n', '<br>')
-            out += "<br>=================================<br>"
-        else:
-            out += "generation in progress...<br>"
-        
-        emails = task.get("emails", None)
-        out += "<br>=== Emails ===<br>"
-        if emails:
-            out += f"{len(emails)} hotel reservation emails found.<br><br>"
-            for email_data in emails.values():
-                out += f"Email Subject: {email_data['subject']}<br>"
-                out += f"   From: {email_data['sender']}<br>"
-                out += f"   Date: {email_data['date']}<br>"
-                out += f"   To: {email_data['recipient']}<br>"
-                out += f"   Reply-To: {email_data['reply_to']}<br>"
-                out += f"   CC: {email_data['cc']}<br>"
-                out += f"   BCC: {email_data['bcc']}<br>"
-                out += f"   In-Reply-To: {email_data['in_reply_to']}<br>"
-                out += f"   Id: {email_data['id']}<br>"
-                out += f"   Stay Length: {email_data.get('stay_length', '')}<br>"
-                out += f"   Stay Year: {email_data.get('stay_year', '')}<br>"
-                key_insights = email_data.get('key_insights', 'generation in progress...').replace('\n', '<br>')
-                out += f"   Key Insights: {key_insights}<br>"
-                out += "-" * 80
-                out += "<br>"
-            out += "<br>=============================<br>"
-        else:
-            out += "collection in progress...<br>"
-        
         return out
+        
     except Exception as e:
         stacktrace = traceback.format_exc()
         print(f"Stacktrace: {stacktrace}")

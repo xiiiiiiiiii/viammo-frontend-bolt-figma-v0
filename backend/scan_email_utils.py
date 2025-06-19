@@ -33,6 +33,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
     "openid",
+    "https://www.googleapis.com/auth/gmail.send"
 ]
 CLIENT_ID = os.getenv('GOOGLE_CLOUD_GMAIL_CLIENT_ID')
 CLIENT_SECRET = os.getenv('GOOGLE_CLOUD_GMAIL_CLIENT_SECRET')
@@ -455,10 +456,11 @@ def scan_email(credentials_dict, id_info, progress_callback):
             recommendations=trip_jsons
         )
         
-        # # Send trip insights by email
-        # progress_callback(f"Sending trip insights by email...", progress)
-        # progress = 100
-        # send_trip_insights_by_email(email, trip_insights, trip_jsons, progress_callback, progress=progress)
+        # Send trip insights by email
+        all_email_data = progress_callback(f"Sending trip insights by email...", progress)
+        progress = 100
+        send_trip_insights_by_email(gmail_service, email, all_email_data, progress_callback, progress)
+
     except Exception as e:
         e_trace = traceback.format_exc()
         progress_callback(
@@ -467,49 +469,38 @@ def scan_email(credentials_dict, id_info, progress_callback):
             status="failed"
         )
 
-
-def send_trip_insights_by_email(to_from_email, trip_insights, trip_jsons, progress_callback, progress=100):
+def send_trip_insights_by_email(service, to_from_email, all_email_data, progress_callback, progress):
     """Send trip insights by email."""
+
     try:
-        trip_jsons = json.dumps(trip_jsons, indent=4)
-        email_body = f"""
-        Trip Insights:
-        {trip_insights}
 
-        Trip JSONs:
-        {trip_jsons}
-        """
+        # Create the email
+        message = EmailMessage()
+        message['To'] = to_from_email
+        message['From'] = 'me'
+        message['Subject'] = 'Trip Recommendations, Past Trip Insights, and Hotel Reservation Emails'
+        formatted_all_email_data = format_all_email_data(all_email_data)
+        message.add_alternative(formatted_all_email_data, subtype='html')
+        # message.set_content(formatted_all_email_data) # if content is text
 
-        url = "https://api.smtp2go.com/v3/email/send" 
+        # Encode message
+        encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
 
-        headers = {
-            "Content-Type": "application/json",
-            'X-Smtp2go-Api-Key': SMTP2GO_API_KEY,
-            "accept": "application/json"
-        }
+        # Create the message resource
+        create_message = {'raw': encoded_message}
 
-        payload = {
-            "to": [to_from_email],
-            "sender": "alexis@goviammo.com ",
-            "subject": "Trip Insights and Recommendations",
-            "text_body": email_body
-        }
+        # Send the email
+        _sent_message = service.users().messages().send(userId="me", body=create_message).execute()
 
-        response = requests.post(url, json=payload, headers=headers)
-
-        if response.status_code != 200:
-            progress_callback(
-                message = f"Failed to send email with error: {response.text}",
-                progress=progress,
-                status="failed"
-            )
-            return
+        # if no exceptions, should have been sent successfully.
+        # |_sent_message| contains message id and thread id in case useful.
 
         progress_callback(
             message = "Email sent successfully",
             progress=progress,
             status="completed"
         )
+
     except Exception as e:
         e_trace = traceback.format_exc()
         progress_callback(
@@ -517,7 +508,68 @@ def send_trip_insights_by_email(to_from_email, trip_insights, trip_jsons, progre
             progress=progress,
             status="failed"
         )
+
+def format_all_email_data(all_email_data):
+    """Format all email data."""
+
+    if not all_email_data:
+        all_email_data = {}
     
+    out = ""
+    out += "<br>REFRESH PAGE TO GET LATEST STATUS<br>"
+    out += "<br>=== Status =======<br>"
+    out += all_email_data.get("status", "unknown")
+    out += "<br>===================<br>"
+
+    out += "<br>=== Progress =======<br>" 
+    out += f'{str(all_email_data.get("progress", "unknown"))}%'
+    out += "<br>===================<br>"
+
+    out += "<br>=== Message =======<br>"
+    out += all_email_data.get("message", "unknown")
+    out += "<br>===================<br>"
+
+    recommendations = all_email_data.get("recommendations", None)
+    out += "<br>=== Generated Recommendations ===<br>"
+    if recommendations:
+        out += json.dumps(recommendations, indent=4).replace('\n', '<br>')
+        out += "<br>=================================<br>"
+    else:
+        out += "generation in progress...<br>"
+
+    out += "<br>=== Generated Trip Insights ===<br>"
+    trip_insights = all_email_data.get("trip_insights", None)
+    if trip_insights:
+        out += trip_insights.replace('\n', '<br>')
+        out += "<br>===============================<br>"
+    else:
+        out += "generation in progress...<br>"
+    
+    emails = all_email_data.get("emails", None)
+    out += "<br>=== Emails ===<br>"
+    if emails:
+        out += f"{len(emails)} hotel reservation emails found.<br><br>"
+        for email_data in emails.values():
+            out += f"Email Subject: {email_data['subject']}<br>"
+            out += f"   From: {email_data['sender']}<br>"
+            out += f"   Date: {email_data['date']}<br>"
+            out += f"   To: {email_data['recipient']}<br>"
+            out += f"   Reply-To: {email_data['reply_to']}<br>"
+            out += f"   CC: {email_data['cc']}<br>"
+            out += f"   BCC: {email_data['bcc']}<br>"
+            out += f"   In-Reply-To: {email_data['in_reply_to']}<br>"
+            out += f"   Id: {email_data['id']}<br>"
+            out += f"   Stay Length: {email_data.get('stay_length', '')}<br>"
+            out += f"   Stay Year: {email_data.get('stay_year', '')}<br>"
+            key_insights = email_data.get('key_insights', 'generation in progress...').replace('\n', '<br>')
+            out += f"   Key Insights: {key_insights}<br>"
+            out += "-" * 80
+            out += "<br>"
+        out += "<br>=============================<br>"
+    else:
+        out += "collection in progress...<br>"
+    
+    return out
 
 def search_emails(service, query, progress_callback, progress_main_message="", progress=5, max_results=500):
     """Search for emails matching the query.
